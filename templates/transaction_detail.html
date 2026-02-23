@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Transaction – Fin Track{% endblock %}
+
+{% block content %}
+  <p><a href="{{ url_for('index') }}">← Back to Transactions</a></p>
+  <table>
+    <tr><th>Date</th><td>{{ t.date or '—' }}</td></tr>
+    <tr><th>Amount (₹)</th><td class="amount">{{ "%.2f"|format(t.amount or 0) }}</td></tr>
+    <tr><th>Category</th><td>{{ t.category_name or '—' }}</td></tr>
+  </table>
+  <h2 style="font-size: 1rem; margin: 1rem 0 0.5rem 0;">Mail body</h2>
+  <pre style="background: #f3f4f6; padding: 1rem; border-radius: 6px; white-space: pre-wrap; word-break: break-word; max-height: 50vh; overflow: auto;">{{ t.body or 'No mail body stored. Re-fetch this transaction from your inbox to see the body.' }}</pre>
+{% endblock %}

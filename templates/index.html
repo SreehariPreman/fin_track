@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <p>
+    <form action="{{ url_for('fetch') }}" method="post" class="inline">
+      <button type="submit" class="btn primary">Fetch last 10 UPI emails</button>
+    </form>
+    — Pulls UPI-related mails from your inbox and adds new transactions.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Amount (₹)</th>
+        <th>Category</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in transactions %}
+      <tr class="row-link" data-href="{{ url_for('transaction_detail', txn_id=t.id) }}">
+        <td><a href="{{ url_for('transaction_detail', txn_id=t.id) }}">{{ t.date or '—' }}</a></td>
+        <td><a href="{{ url_for('transaction_detail', txn_id=t.id) }}" class="amount">{{ "%.2f"|format(t.amount or 0) }}</a></td>
+        <td>{{ t.category_name or '—' }}</td>
+        <td onclick="event.stopPropagation();">
+          <form action="{{ url_for('categorise') }}" method="post" class="inline">
+            <input type="hidden" name="transaction_id" value="{{ t.id }}">
+            <select name="category_id">
+              <option value="">— None —</option>
+              {% for c in categories %}
+              <option value="{{ c.id }}" {{ 'selected' if t.category_id == c.id else '' }}>{{ c.name }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit">Save</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="4" class="no-data">No transactions yet. Click “Fetch last 10 UPI emails” to load from your mailbox.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="add-category">
+    <strong>Create category</strong>
+    <form action="{{ url_for('create_category') }}" method="post" class="inline" style="margin-left: 0.5rem;">
+      <input type="text" name="name" placeholder="e.g. Food, Transport" required>
+      <button type="submit" class="btn primary">Add</button>
+    </form>
+  </div>
+{% endblock %}

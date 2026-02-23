@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}View by category – Fin Track{% endblock %}
+
+{% block content %}
+  <p>Categories and their transactions. Click a row to view the full mail body.</p>
+
+  {% for cat in categories %}
+  <section style="margin-bottom: 1.5rem; padding: 1rem; background: #f9fafb; border-radius: 8px;">
+    <h2 style="font-size: 1.1rem; margin: 0 0 0.5rem 0;">{{ cat.name }}</h2>
+    <p style="margin: 0 0 0.5rem 0; font-weight: 600;">Total: ₹ {{ "%.2f"|format(cat.total) }}</p>
+    {% if cat.transactions %}
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Amount (₹)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in cat.transactions %}
+        <tr class="row-link" style="cursor: pointer;" data-href="{{ url_for('transaction_detail', txn_id=t.id) }}">
+          <td>{{ t.date or '—' }}</td>
+          <td class="amount">{{ "%.2f"|format(t.amount or 0) }}</td>
+          <td><a href="{{ url_for('transaction_detail', txn_id=t.id) }}">View mail</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="no-data">No transactions in this category.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <section style="margin-bottom: 1.5rem; padding: 1rem; background: #fef3c7; border-radius: 8px;">
+    <h2 style="font-size: 1.1rem; margin: 0 0 0.5rem 0;">Uncategorised</h2>
+    {% if uncategorised %}
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Amount (₹)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in uncategorised %}
+        <tr class="row-link" style="cursor: pointer;" data-href="{{ url_for('transaction_detail', txn_id=t.id) }}">
+          <td>{{ t.date or '—' }}</td>
+          <td class="amount">{{ "%.2f"|format(t.amount or 0) }}</td>
+          <td><a href="{{ url_for('transaction_detail', txn_id=t.id) }}">View mail</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="no-data">No uncategorised transactions.</p>
+    {% endif %}
+  </section>
+
+  <p><a href="{{ url_for('index') }}">← Back to Transactions</a></p>
+{% endblock %}
