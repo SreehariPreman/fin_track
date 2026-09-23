@@ -12,13 +12,13 @@ class ImapService {
 
   /// Scans the inbox newest-first in batches until [maxCount] UPI-related
   /// emails are found (or the inbox is exhausted).
-  Future<List<Transaction>> fetchLastUpiTransactions({
+  Future<List<UpiTransaction>> fetchLastUpiTransactions({
     required String email,
     required String appPasscode,
     int maxCount = 10,
   }) async {
     final client = ImapClient(isLogEnabled: false);
-    final results = <Transaction>[];
+    final results = <UpiTransaction>[];
 
     try {
       await client.connectToServer(host, port, isSecure: true);
@@ -55,7 +55,7 @@ class ImapService {
               ? ParserService.extractSnippet(body)
               : (subject.length > 200 ? subject.substring(0, 200) : subject);
 
-          results.add(Transaction(
+          results.add(UpiTransaction(
             emailId: (msg.sequenceId ?? 0).toString(),
             subject: subject.length > 120 ? subject.substring(0, 120) : subject,
             amount: amount,

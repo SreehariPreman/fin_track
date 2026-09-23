@@ -1,9 +1,8 @@
 # Fin Track — Mobile App
 
 A standalone Flutter app that connects **directly to Gmail over IMAP from
-your phone** to fetch and display your last 10 HDFC UPI transaction emails —
-same parsing logic as the desktop `fin_track` app, but no backend, no
-database, and no server in between.
+your phone** to track your HDFC UPI transactions — same parsing logic as
+the desktop `fin_track` app, but no backend and no server in between.
 
 Everything for this app lives inside this `mobile_app/` folder. It does not
 import anything from the rest of the repo.
@@ -16,11 +15,19 @@ import anything from the rest of the repo.
   never written to a plain file, never sent anywhere except directly to
   `imap.gmail.com`.
 - **Home screen**: tap **"Fetch last 10 UPI transactions"** to connect live
-  over IMAP and pull your most recent UPI-related emails. Results are kept
-  in memory only — nothing is saved locally, so re-opening the app or
-  fetching again always gets you the current state of your inbox. (No
-  SQLite, no local database — keeps the app small.)
-- **Tap a transaction card** to see the full parsed email body.
+  over IMAP and pull your most recent UPI-related emails. New ones are
+  saved into a **local SQLite database on the device** — that database,
+  not Gmail, is what the list and any future dashboards are built from, so
+  your categorized history survives across fetches, app restarts, etc.
+- **Tap a transaction's "Label" chip** to assign it to a category (create
+  new categories inline — e.g. Food, Petrol, Rent). Tap the rest of the
+  card to see the full parsed email body.
+- **Google Sheets backup (optional, manual)**: in Profile, tap **"Connect
+  Google account"** once (standard Google sign-in consent screen, no
+  password ever touches this app). After that, tap **"Sync to Google
+  Sheet"** any time to push whatever's new since the last sync — it only
+  **appends** rows, never overwrites, and only runs when you tap it. The
+  local database is always the source of truth; the Sheet is just a copy.
 
 Amount/date/snippet parsing (`lib/services/parser_service.dart`) is a
 line-for-line Dart port of the desktop app's `email_service.py` regex
@@ -59,6 +66,46 @@ flutter pub get
    [Google Account → Security → App passwords](https://myaccount.google.com/apppasswords),
    create one for "Mail", and use that 16-character code in the Profile
    screen — not your regular Gmail password.
+
+### Google Cloud setup for the Sheets backup (only needed if you want that feature)
+
+The Google Sign-In button won't work until you register the app in a free
+Google Cloud project. This is a one-time, ~10 minute setup:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/),
+   create a project (or reuse one).
+2. **APIs & Services → Library** → enable the **Google Sheets API**.
+3. **APIs & Services → OAuth consent screen** → configure it (External is
+   fine for personal use; add your own Google account as a test user if
+   prompted).
+4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**
+   → Application type **Android**. You'll need:
+   - **Package name**: `com.fintrack.mobile_app`
+   - **SHA-1 certificate fingerprint** of the signing key. For local debug
+     builds (what `flutter run` uses), get it with:
+
+     ```bash
+     cd mobile_app/android
+     ./gradlew signingReport
+     ```
+
+     Look for the `debug` variant's `SHA1:` line. On this machine that
+     was `7B:28:35:D5:3E:AD:7E:19:00:8D:93:79:5C:2D:F1:6B:27:F7:B0:F0` —
+     yours will differ once you generate/use your own debug keystore, so
+     always re-check with the command above rather than trusting an old
+     value.
+   - No client secret needed for the Android client type.
+5. Save. No app code changes needed — `google_sign_in` picks up the
+   registration automatically based on package name + SHA-1 + the
+   `Google Sheets API` being enabled on the project.
+
+If you later build a **release** APK signed with your own keystore
+(instead of the debug one), you'll need to add that keystore's SHA-1 as a
+second OAuth client (same steps, different fingerprint) or Google Sign-In
+will fail on release builds only.
+
+No billing account is required — Sheets API is free for this scale of
+personal use.
 
 ## Run on the Android Emulator (test on your laptop)
 
@@ -135,43 +182,37 @@ Options to get it onto your phone:
 A debug build (`flutter build apk --debug`, output at
 `build/app/outputs/flutter-apk/app-debug.apk`) also works for manual
 install and is faster to build, but is unoptimized — prefer `--release`
-for anything you're actually going to use day-to-day.
+for anything you're actually going to use day-to-day. Remember: a release
+build is signed with a different keystore than `flutter run` uses, so
+Google Sign-In needs its own OAuth client registered (see the Google
+Cloud setup section above) before it'll work in a release build.
 
 ## Notes / limitations
 
 - **Android only** for now — no iOS build has been set up (would need
-  Xcode + CocoaPods + an Apple developer profile for a physical iPhone;
-  the emulator/simulator side is a separate concern from your goal of
-  having this on your Android phone).
-- **No persistence** — by design (per the "no database" requirement),
-  every fetch talks live to Gmail; there's no offline transaction history
-  yet. That's the reason for the planned Google Sheets phase below.
+  Xcode + CocoaPods + an Apple developer profile for a physical iPhone).
+- **Local database, not Gmail, is the source of truth.** Fetch pulls new
+  mail and inserts it into SQLite; categorization and history all live
+  there. Uninstalling the app deletes this data — there's no cloud
+  restore yet, which is exactly what the optional Google Sheets sync is
+  for (a manual, append-only backup copy).
 - IMAP connects straight from the phone to `imap.gmail.com:993` over TLS.
   No third-party server sees your email or app password.
+- Google Sheets sync is a **separate credential** from the IMAP app
+  passcode — Google doesn't accept app passwords for API access, so it
+  needs its own one-time "Connect Google account" consent, done through
+  standard Google Sign-In (no password ever seen or stored by this app).
 
-## Future phase: Google Sheets as the transaction history
+## Planned next phases (not built yet)
 
-The plan is to use a personal Google Sheet as the "database" instead of
-storing transactions on-device or standing up a backend — keeps the app
-tiny and gives you a normal spreadsheet you can view/edit/chart outside
-the app.
-
-Key constraint: the Gmail **App Password** used for IMAP is **not**
-accepted by the Google Sheets API — Sheets writes require OAuth2. Two free
-options, in order of preference:
-
-1. **Google Apps Script Web App** (recommended): deploy a small free Apps
-   Script bound to your own Sheet, exposed as a Web App URL guarded by a
-   shared secret you set once. The app POSTs each parsed transaction to
-   that URL; the script appends a row. No OAuth screen inside the app, no
-   billing, no API keys to manage — closest to the current "just enter a
-   credential and go" flow.
-2. **Google Sheets API with Google Sign-In**: fully OAuth-based, free
-   (well under quota for personal use), but adds a one-time Google
-   consent screen in the app instead of a plain passcode field.
-
-Not implemented yet — this section is a roadmap note for the next phase
-of work, not something the current app does.
+1. **Background notifications**: periodic background sync (Android
+   `WorkManager`, minimum ~15 minute interval due to OS battery limits)
+   that checks for new UPI mail and fires a local notification prompting
+   you to categorize it — no backend needed, reuses the same IMAP
+   credentials.
+2. **Dashboards**: category breakdown, spend-over-time charts (`fl_chart`),
+   and week/month/year filters — all reading from the local SQLite
+   database, no network required.
 
 ## Project structure
 
@@ -180,14 +221,19 @@ mobile_app/
   lib/
     main.dart                          # app entry point
     models/
-      transaction.dart                 # parsed transaction data
+      transaction.dart                 # UpiTransaction: parsed + categorized transaction
+      category.dart                    # Category: id + name
     services/
       imap_service.dart                # connects to Gmail IMAP, fetches mail
       parser_service.dart              # amount/date/snippet regex parsing
       credentials_service.dart         # secure read/write of email + passcode
+      database_service.dart            # local SQLite: transactions + categories
+      google_sheets_service.dart       # Google Sign-In + append-only Sheets backup
+    widgets/
+      category_picker_sheet.dart       # bottom sheet to label a transaction
     screens/
-      home_screen.dart                 # fetch button + transaction list
-      profile_screen.dart              # email + app passcode entry
+      home_screen.dart                 # fetch button + local transaction list
+      profile_screen.dart              # email/passcode entry + Google Sheets backup
       transaction_detail_screen.dart   # full email body view
   android/                             # generated Android project
   test/
@@ -202,5 +248,8 @@ mobile_app/
   socket support, which would otherwise force a backend or native module
   just to read mail.
 - **IMAP**: [`enough_mail`](https://pub.dev/packages/enough_mail)
+- **Local database**: [`sqflite`](https://pub.dev/packages/sqflite)
 - **Secure storage**: [`flutter_secure_storage`](https://pub.dev/packages/flutter_secure_storage)
-  (Android Keystore-backed)
+  (Android Keystore-backed) — for the IMAP email/app-passcode only
+- **Google Sheets backup**: [`google_sign_in`](https://pub.dev/packages/google_sign_in)
+  for OAuth, plain REST calls (via `http`) to the Sheets API v4

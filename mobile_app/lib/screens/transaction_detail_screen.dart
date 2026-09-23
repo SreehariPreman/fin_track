@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/transaction.dart';
 
 class TransactionDetailScreen extends StatelessWidget {
-  final Transaction transaction;
+  final UpiTransaction transaction;
 
   const TransactionDetailScreen({super.key, required this.transaction});
 
