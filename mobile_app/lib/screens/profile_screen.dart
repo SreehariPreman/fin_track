@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/credentials_service.dart';
 import '../services/database_service.dart';
@@ -29,12 +30,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _syncing = false;
   String? _sheetsError;
   String? _syncMessage;
+  String? _spreadsheetUrl;
 
   @override
   void initState() {
     super.initState();
     _load();
     _loadGoogleAccount();
+    _loadSpreadsheetUrl();
   }
 
   Future<void> _load() async {
@@ -51,6 +54,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final account = await _sheetsService.signInSilently();
     if (!mounted) return;
     setState(() => _googleAccount = account);
+  }
+
+  Future<void> _loadSpreadsheetUrl() async {
+    final url = await _sheetsService.getStoredSpreadsheetUrl();
+    if (!mounted) return;
+    setState(() => _spreadsheetUrl = url);
+  }
+
+  Future<void> _openSpreadsheet() async {
+    final url = _spreadsheetUrl;
+    if (url == null) return;
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (!mounted) return;
+      setState(() => _sheetsError = 'Could not open the spreadsheet link.');
+    }
   }
 
   Future<void> _connectGoogle() async {
@@ -85,10 +104,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() => _syncMessage = 'Already up to date — nothing new to sync.');
         return;
       }
-      await _sheetsService.appendTransactions(unsynced);
+      final url = await _sheetsService.appendTransactions(unsynced);
       final ids = unsynced.where((t) => t.id != null).map((t) => t.id!).toList();
       await _db.markSynced(ids);
-      setState(() => _syncMessage = 'Synced ${unsynced.length} transaction(s) to Google Sheet.');
+      setState(() {
+        _syncMessage = 'Synced ${unsynced.length} transaction(s) to Google Sheet.';
+        _spreadsheetUrl = url;
+      });
     } catch (e) {
       setState(() => _sheetsError = 'Sync failed: $e');
     } finally {
@@ -232,6 +254,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         label: Text(_syncing ? 'Syncing...' : 'Sync to Google Sheet'),
                       ),
                     ],
+                    if (_spreadsheetUrl != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: TextButton.icon(
+                          onPressed: _openSpreadsheet,
+                          icon: const Icon(Icons.open_in_new, size: 18),
+                          label: const Text('Open Google Sheet'),
+                        ),
+                      ),
                     if (_sheetsError != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),

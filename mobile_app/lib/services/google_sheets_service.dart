@@ -26,6 +26,18 @@ class GoogleSheetsService {
 
   Future<void> signOut() => _googleSignIn.disconnect();
 
+  /// The spreadsheet URL, if one has been created by a previous sync.
+  /// Does not create one — use [appendTransactions] for that.
+  Future<String?> getStoredSpreadsheetUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final id = prefs.getString(_spreadsheetIdPrefKey);
+    if (id == null || id.isEmpty) return null;
+    return _spreadsheetUrl(id);
+  }
+
+  String _spreadsheetUrl(String spreadsheetId) =>
+      'https://docs.google.com/spreadsheets/d/$spreadsheetId/edit';
+
   Future<Map<String, String>> _authHeaders() async {
     final account = currentUser ?? await _googleSignIn.signInSilently();
     if (account == null) {
@@ -85,13 +97,13 @@ class GoogleSheetsService {
     return id;
   }
 
-  /// Appends [transactions] as new rows. Returns the spreadsheet id used,
-  /// so callers can show/open it if needed.
+  /// Appends [transactions] as new rows. Returns the spreadsheet's URL so
+  /// callers can show/open it.
   Future<String> appendTransactions(List<UpiTransaction> transactions) async {
     final headers = await _authHeaders();
     final spreadsheetId = await _getOrCreateSpreadsheetId(headers);
 
-    if (transactions.isEmpty) return spreadsheetId;
+    if (transactions.isEmpty) return _spreadsheetUrl(spreadsheetId);
 
     final values = transactions
         .map((t) => [
@@ -117,6 +129,6 @@ class GoogleSheetsService {
       throw Exception('Could not append to spreadsheet: ${response.statusCode} ${response.body}');
     }
 
-    return spreadsheetId;
+    return _spreadsheetUrl(spreadsheetId);
   }
 }
