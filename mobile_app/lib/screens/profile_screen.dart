@@ -41,25 +41,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _load() async {
-    final email = await _credentialsService.readEmail();
-    final passcode = await _credentialsService.readAppPasscode();
-    setState(() {
-      _emailController.text = email ?? '';
-      _passcodeController.text = passcode ?? '';
-      _loading = false;
-    });
+    try {
+      final email = await _credentialsService.readEmail();
+      final passcode = await _credentialsService.readAppPasscode();
+      if (!mounted) return;
+      setState(() {
+        _emailController.text = email ?? '';
+        _passcodeController.text = passcode ?? '';
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
   }
 
   Future<void> _loadGoogleAccount() async {
-    final account = await _sheetsService.signInSilently();
-    if (!mounted) return;
-    setState(() => _googleAccount = account);
+    try {
+      final account = await _sheetsService.signInSilently();
+      if (!mounted) return;
+      setState(() => _googleAccount = account);
+    } catch (_) {
+      // Not signed in / plugin unavailable — leave the connect button showing.
+    }
   }
 
   Future<void> _loadSpreadsheetUrl() async {
-    final url = await _sheetsService.getStoredSpreadsheetUrl();
-    if (!mounted) return;
-    setState(() => _spreadsheetUrl = url);
+    try {
+      final url = await _sheetsService.getStoredSpreadsheetUrl();
+      if (!mounted) return;
+      setState(() => _spreadsheetUrl = url);
+    } catch (_) {
+      // No spreadsheet yet, or plugin unavailable — leave the link hidden.
+    }
   }
 
   Future<void> _openSpreadsheet() async {
@@ -128,7 +142,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _saving = false);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saved. You can now fetch transactions from Home.')),
+      const SnackBar(content: Text('Saved. You can now fetch transactions from Sync.')),
     );
   }
 

@@ -1,23 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../models/category.dart';
 import '../models/transaction.dart';
 import '../services/credentials_service.dart';
 import '../services/database_service.dart';
 import '../services/imap_service.dart';
-import '../widgets/category_picker_sheet.dart';
-import 'profile_screen.dart';
 import 'transaction_detail_screen.dart';
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class SyncScreen extends StatefulWidget {
+  const SyncScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<SyncScreen> createState() => _SyncScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _SyncScreenState extends State<SyncScreen> {
   final _credentialsService = CredentialsService();
   final _imapService = ImapService();
   final _db = DatabaseService.instance;
@@ -84,28 +81,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _pickCategory(UpiTransaction t) async {
-    final Category? category = await CategoryPickerSheet.show(context);
-    if (category == null || t.id == null) return;
-    await _db.assignCategory(t.id!, category.id);
-    await _loadFromDb();
+  Future<void> _openDetail(UpiTransaction t) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => TransactionDetailScreen(transaction: t)),
+    );
+    // The detail screen may have changed this transaction's label.
+    _loadFromDb();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Fin Track'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            tooltip: 'Profile',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ProfileScreen()),
-            ),
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Sync')),
       body: RefreshIndicator(
         onRefresh: _fetch,
         child: _loadingList
@@ -138,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ..._transactions.map(
                     (t) => _TransactionCard(
                       transaction: t,
-                      onLabelTap: () => _pickCategory(t),
+                      onTap: () => _openDetail(t),
                     ),
                   ),
                 ],
@@ -150,14 +137,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _TransactionCard extends StatelessWidget {
   final UpiTransaction transaction;
-  final VoidCallback onLabelTap;
+  final VoidCallback onTap;
 
-  const _TransactionCard({required this.transaction, required this.onLabelTap});
+  const _TransactionCard({required this.transaction, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final dateStr = transaction.date != null
-        ? DateFormat('dd MMM yyyy').format(transaction.date!)
+    final dateTimeStr = transaction.date != null
+        ? DateFormat('dd MMM yyyy · hh:mm a').format(transaction.date!)
         : '—';
     final amountStr = transaction.amount != null
         ? '₹${transaction.amount!.toStringAsFixed(2)}'
@@ -167,15 +154,9 @@ class _TransactionCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(
         title: Text(amountStr, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('$dateStr · ${transaction.snippet}'),
-        trailing: ActionChip(
-          avatar: const Icon(Icons.label_outline, size: 16),
-          label: Text(transaction.categoryName ?? 'Label'),
-          onPressed: onLabelTap,
-        ),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => TransactionDetailScreen(transaction: transaction)),
-        ),
+        subtitle: Text(dateTimeStr),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
       ),
     );
   }
