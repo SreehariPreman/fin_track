@@ -132,7 +132,13 @@ final BankProfile unionBank = BankProfile(
     }
 
     String? line(String label) {
-      final m = RegExp('$label\\s*:\\s*([^\n]+)', caseSensitive: false).firstMatch(body);
+      // Stops at the next newline, the next numbered field (e.g. "6. Transaction..."),
+      // or end of string — defensive in case a line break got lost upstream,
+      // so a missing newline can't make this swallow the rest of the email.
+      final m = RegExp(
+        '$label\\s*:\\s*(.+?)(?=\\n|\\s+\\d+\\.\\s|\$)',
+        caseSensitive: false,
+      ).firstMatch(body);
       return m?.group(1)?.trim();
     }
 

@@ -96,8 +96,25 @@ class ImapService {
     }
   }
 
+  /// Strips HTML to plain text while preserving line breaks — collapsing
+  /// everything (including block-level tags) to spaces turns a structured
+  /// "Label : value" email into one giant line, which breaks per-field
+  /// parsing (a "until end of line" regex then captures the rest of the
+  /// whole email instead of just that field).
   static String _stripHtml(String html) {
-    final noTags = html.replaceAll(RegExp(r'<[^>]+>'), ' ');
-    return noTags.replaceAll(RegExp(r'\s+'), ' ').trim();
+    var text = html
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</(p|div|tr|li|h[1-6])\s*>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll(RegExp(r'&(#39|apos);'), "'")
+        .replaceAll('&quot;', '"');
+    // Collapse repeated spaces/tabs (but not newlines), and repeated blank lines.
+    text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
+    text = text.replaceAll(RegExp(r'\n\s*\n+'), '\n');
+    return text.trim();
   }
 }
