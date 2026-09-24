@@ -82,31 +82,47 @@ class DatabaseService {
   }
 
   /// Inserts newly-fetched transactions, ignoring ones already stored
-  /// (matched by email_id). Existing rows — including their category and
-  /// sync state — are left untouched.
+  /// (matched by email_id). For an email already stored, the mail-derived
+  /// fields are refreshed (in case parsing has since improved) but
+  /// category, notes, and sync state are left untouched — those are only
+  /// ever user-set.
   Future<void> insertNewTransactions(List<UpiTransaction> transactions) async {
     final db = await _database;
     final batch = db.batch();
     for (final t in transactions) {
-      batch.insert(
-        'transactions',
-        {
-          'email_id': t.emailId,
-          'subject': t.subject,
-          'amount': t.amount,
-          'date': t.date?.toIso8601String(),
-          'snippet': t.snippet,
-          'body': t.body,
-          'bank_code': t.bankCode,
-          'bank_name': t.bankName,
-          'merchant_name': t.merchantName,
-          'upi_id': t.upiId,
-          'reference_no': t.referenceNo,
-          'transaction_type': t.transactionType,
-          'status': t.status,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      batch.rawInsert('''
+        INSERT INTO transactions (
+          email_id, subject, amount, date, snippet, body,
+          bank_code, bank_name, merchant_name, upi_id, reference_no, transaction_type, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(email_id) DO UPDATE SET
+          subject = excluded.subject,
+          amount = excluded.amount,
+          date = excluded.date,
+          snippet = excluded.snippet,
+          body = excluded.body,
+          bank_code = excluded.bank_code,
+          bank_name = excluded.bank_name,
+          merchant_name = excluded.merchant_name,
+          upi_id = excluded.upi_id,
+          reference_no = excluded.reference_no,
+          transaction_type = excluded.transaction_type,
+          status = excluded.status
+      ''', [
+        t.emailId,
+        t.subject,
+        t.amount,
+        t.date?.toIso8601String(),
+        t.snippet,
+        t.body,
+        t.bankCode,
+        t.bankName,
+        t.merchantName,
+        t.upiId,
+        t.referenceNo,
+        t.transactionType,
+        t.status,
+      ]);
     }
     await batch.commit(noResult: true);
   }
