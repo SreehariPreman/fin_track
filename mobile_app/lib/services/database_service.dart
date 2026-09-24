@@ -21,6 +21,15 @@ class DatabaseService {
 
   Database? _db;
 
+  /// Thin passthrough for read-only aggregate queries (see
+  /// analytics_service.dart) — keeps ad hoc SQL out of the rest of the app
+  /// while not requiring every aggregate to be hand-written as its own
+  /// named method here.
+  Future<List<Map<String, Object?>>> query(String sql, [List<Object?>? arguments]) async {
+    final db = await _database;
+    return db.rawQuery(sql, arguments);
+  }
+
   Future<Database> get _database async {
     if (_db != null) return _db!;
     _db = await _open();

@@ -14,9 +14,10 @@ import anything from the rest of the repo.
 ## How it works
 
 - **Bottom navigation**: Home · Transactions · Analytics · Settings.
-  - **Home** and **Analytics** are placeholders ("Coming soon") for later
-    phases — see Backlog below. Home will be a financial overview; Analytics
-    will hold charts/filtering.
+  - **Home** is a placeholder ("Coming soon") — see Backlog below; intended
+    to be a financial overview.
+  - **Analytics**: month selector + Overview / Categories / Banks / Trends
+    sub-tabs, and a Filters sheet — see "Analytics" below.
   - **Transactions**: tap **"Fetch last 10 UPI transactions"** to connect
     live over IMAP and pull your most recent alert emails from known bank
     senders. New ones are saved into a **local SQLite database on the
@@ -77,6 +78,33 @@ Amount/date/merchant/reference/status extraction (`lib/services/bank_profiles.da
 replaces the earlier generic regex port from the desktop app's
 `email_service.py` — the two supported banks' formats are different enough
 that per-bank parsing is both more accurate and easier to extend.
+
+## Analytics
+
+`lib/screens/analytics_tab.dart` is the shell: an AppBar with a Filters
+icon, a month selector (‹ September 2026 ›), and a 4-tab `TabBar` —
+Overview / Categories / Banks / Trends (`lib/screens/analytics/`).
+
+**Date scoping**: the month selector is the default range. Opening the
+Filters sheet and picking a Date Range preset (Today / This Week / This
+Month / Last 3 Months / Custom Range) *overrides* the month selector —
+shown as a removable chip — until cleared (via the chip's ✕, the sheet's
+Reset, or moving the month selector again, which always reasserts
+month-selector mode). Bank / Category / Transaction Type selections from
+the sheet apply on top of whichever date range is active, also shown as
+chips. This logic lives in `lib/models/analytics_filter.dart`
+(`AnalyticsFilter.resolveDateRange`).
+
+**Data**: `lib/services/analytics_service.dart` holds every aggregate
+query (total spend, category/bank breakdowns, daily/monthly series) as
+one parameterised `WHERE` builder over the local `transactions` table —
+add a new aggregate by adding one method there, not by writing ad hoc SQL
+in a screen. Charts are `fl_chart` (line/pie/bar), kept deliberately
+minimal (no gridlines, no axis clutter) per the design spec.
+
+**Filters sheet** (`lib/screens/analytics/filters_sheet.dart`) is
+Analytics-only — the Transactions tab keeps its own separate, simpler
+All/Unlabelled/per-bank filter chips.
 
 ## Design system
 
@@ -302,9 +330,10 @@ Not built/fixed yet — rough priority order, but open to reordering:
   bigger change, deferred.
 - [ ] **Build out Home tab** — currently a placeholder; intended purpose
   is a financial overview.
-- [ ] **Build out Analytics tab** — category breakdown, spend-over-time
-  charts (`fl_chart`), week/month/year filters, all reading from the
-  local SQLite database.
+- [x] ~~Build out Analytics tab~~ — done: Overview / Categories / Banks /
+  Trends sub-tabs with a month selector and a Filters sheet (Date Range /
+  Bank / Category / Transaction Type), all reading from the local SQLite
+  database via `lib/services/analytics_service.dart`.
 - [ ] **Push notifications on new transactions** — periodic background
   sync (Android `WorkManager`, minimum ~15 minute interval due to OS
   battery limits) that checks for new bank alert mail and fires a local
@@ -325,12 +354,15 @@ mobile_app/
     models/
       transaction.dart                 # UpiTransaction: parsed + categorized transaction
       category.dart                    # Category: id + name
+      analytics_filter.dart            # AnalyticsFilter + DateRange/DateRangePreset
+      analytics_models.dart            # CategorySpend/BankSpend/DailySpend/MonthlySpend
     services/
       bank_profiles.dart               # per-bank sender address + email parser
       imap_service.dart                # connects to Gmail IMAP, fetches + parses mail
       credentials_service.dart         # secure read/write of email + passcode
       database_service.dart            # local SQLite: transactions + categories
       google_sheets_service.dart       # Google Sign-In + append-only Sheets backup
+      analytics_service.dart           # aggregate queries for the Analytics tab
     widgets/
       app_card.dart                    # shared card component
       category_avatar.dart             # colored initial-letter avatar
@@ -340,7 +372,13 @@ mobile_app/
       splash_screen.dart               # brand intro
       root_screen.dart                 # bottom-nav shell (Home/Transactions/Analytics/Settings)
       home_tab.dart                    # placeholder
-      analytics_tab.dart               # placeholder
+      analytics_tab.dart               # Analytics shell: month selector + sub-tabs + filters
+      analytics/
+        overview_tab.dart              # summary card, trend chart, KPIs, category donut
+        categories_analytics_tab.dart  # category spend list, sorted, with progress bars
+        banks_tab.dart                 # bank donut + monthly comparison + bank-wise trend
+        trends_tab.dart                # daily/weekly/monthly line chart + stats
+        filters_sheet.dart             # Date Range / Bank / Category / Transaction Type
       transactions_screen.dart         # fetch button + filters + grouped transaction list
       transaction_detail_screen.dart   # transaction detail, notes, delete
       label_transaction_screen.dart    # category grid labeling screen
@@ -350,6 +388,8 @@ mobile_app/
   android/                             # generated Android project
   test/
     widget_test.dart
+    bank_profiles_test.dart
+    imap_service_test.dart
 ```
 
 ## Tech
