@@ -1,17 +1,18 @@
 import 'package:enough_mail/enough_mail.dart';
 
 import '../models/transaction.dart';
-import 'parser_service.dart';
+import 'bank_profiles.dart';
 
 /// Connects directly to Gmail IMAP from the device (no backend) and pulls
-/// the most recent UPI-related emails. Mirrors fetch_last_upi_transactions()
-/// from the desktop app's email_service.py.
+/// the most recent alert emails from known bank senders (see
+/// bank_profiles.dart) — rather than a keyword heuristic, we match the
+/// sender address precisely and use that bank's own parser.
 class ImapService {
   static const String host = 'imap.gmail.com';
   static const int port = 993;
 
-  /// Scans the inbox newest-first in batches until [maxCount] UPI-related
-  /// emails are found (or the inbox is exhausted).
+  /// Scans the inbox newest-first in batches until [maxCount] recognised
+  /// bank-alert emails are found (or the inbox is exhausted).
   Future<List<UpiTransaction>> fetchLastUpiTransactions({
     required String email,
     required String appPasscode,
@@ -41,27 +42,44 @@ class ImapService {
         for (final msg in messages) {
           if (results.length >= maxCount) break;
 
+          final fromEmail = (msg.from?.isNotEmpty ?? false) ? msg.from!.first.email : '';
+          final bank = bankProfileForSender(fromEmail);
+          if (bank == null) continue;
+
           final subject = msg.decodeSubject() ?? '';
           final body = (msg.decodeTextPlainPart() ??
                   _stripHtml(msg.decodeTextHtmlPart() ?? ''))
               .trim();
 
-          if (!ParserService.isUpiRelated(subject, body)) continue;
-
-          final textForParse = '$subject $body';
-          final amount = ParserService.parseAmount(textForParse);
-          final date = ParserService.parseDateFromBody(body) ?? msg.decodeDate();
-          final snippet = body.isNotEmpty
-              ? ParserService.extractSnippet(body)
-              : (subject.length > 200 ? subject.substring(0, 200) : subject);
+          final parsed = bank.parse(subject, body);
+          // Some banks' alert bodies (e.g. HDFC) only give a date, no time
+          // of day — the parsed value then lands exactly at midnight, which
+          // is indistinguishable from "no time info" and misleading in the
+          // UI. Prefer the mail's own timestamp (which has a real time)
+          // whenever the parsed date looks like a bare date.
+          final looksTimeless = parsed.date != null &&
+              parsed.date!.hour == 0 &&
+              parsed.date!.minute == 0 &&
+              parsed.date!.second == 0;
+          final date = (parsed.date != null && !looksTimeless)
+              ? parsed.date
+              : (msg.decodeDate() ?? parsed.date);
+          final merchant = parsed.merchantName;
 
           results.add(UpiTransaction(
             emailId: (msg.sequenceId ?? 0).toString(),
             subject: subject.length > 120 ? subject.substring(0, 120) : subject,
-            amount: amount,
+            amount: parsed.amount,
             date: date,
-            snippet: snippet,
+            snippet: merchant ?? (body.isNotEmpty ? body : subject).replaceAll('\n', ' ').trim(),
             body: body,
+            bankCode: bank.code,
+            bankName: bank.name,
+            merchantName: merchant,
+            upiId: parsed.upiId,
+            referenceNo: parsed.referenceNo,
+            transactionType: parsed.transactionType,
+            status: parsed.status,
           ));
         }
 

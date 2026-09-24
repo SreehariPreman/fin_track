@@ -4,6 +4,13 @@ import 'package:sqflite/sqflite.dart';
 import '../models/category.dart';
 import '../models/transaction.dart';
 
+const _kTxnColumns = '''
+  t.id, t.email_id, t.subject, t.amount, t.date, t.snippet, t.body,
+  t.category_id, t.synced_to_sheet, c.name AS category_name,
+  t.bank_code, t.bank_name, t.merchant_name, t.upi_id, t.reference_no,
+  t.transaction_type, t.status, t.notes
+''';
+
 /// Local on-device database — the single source of truth for transactions
 /// and categories. Google Sheets (see google_sheets_service.dart) is only
 /// ever a one-way, append-only backup copy of what's stored here.
@@ -25,7 +32,7 @@ class DatabaseService {
     final path = join(dbPath, 'fin_track.db');
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE category (
@@ -43,9 +50,33 @@ class DatabaseService {
             snippet TEXT,
             body TEXT,
             category_id INTEGER REFERENCES category(id),
-            synced_to_sheet INTEGER NOT NULL DEFAULT 0
+            synced_to_sheet INTEGER NOT NULL DEFAULT 0,
+            bank_code TEXT,
+            bank_name TEXT,
+            merchant_name TEXT,
+            upi_id TEXT,
+            reference_no TEXT,
+            transaction_type TEXT,
+            status TEXT,
+            notes TEXT
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          for (final column in [
+            'bank_code TEXT',
+            'bank_name TEXT',
+            'merchant_name TEXT',
+            'upi_id TEXT',
+            'reference_no TEXT',
+            'transaction_type TEXT',
+            'status TEXT',
+            'notes TEXT',
+          ]) {
+            await db.execute('ALTER TABLE transactions ADD COLUMN $column');
+          }
+        }
       },
     );
   }
@@ -66,6 +97,13 @@ class DatabaseService {
           'date': t.date?.toIso8601String(),
           'snippet': t.snippet,
           'body': t.body,
+          'bank_code': t.bankCode,
+          'bank_name': t.bankName,
+          'merchant_name': t.merchantName,
+          'upi_id': t.upiId,
+          'reference_no': t.referenceNo,
+          'transaction_type': t.transactionType,
+          'status': t.status,
         },
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
@@ -76,8 +114,7 @@ class DatabaseService {
   Future<List<UpiTransaction>> getAllTransactions() async {
     final db = await _database;
     final rows = await db.rawQuery('''
-      SELECT t.id, t.email_id, t.subject, t.amount, t.date, t.snippet, t.body,
-             t.category_id, t.synced_to_sheet, c.name AS category_name
+      SELECT $_kTxnColumns
       FROM transactions t
       LEFT JOIN category c ON c.id = t.category_id
       ORDER BY t.date DESC, t.id DESC
@@ -88,14 +125,31 @@ class DatabaseService {
   Future<List<UpiTransaction>> getUnsyncedTransactions() async {
     final db = await _database;
     final rows = await db.rawQuery('''
-      SELECT t.id, t.email_id, t.subject, t.amount, t.date, t.snippet, t.body,
-             t.category_id, t.synced_to_sheet, c.name AS category_name
+      SELECT $_kTxnColumns
       FROM transactions t
       LEFT JOIN category c ON c.id = t.category_id
       WHERE t.synced_to_sheet = 0
       ORDER BY t.date ASC, t.id ASC
     ''');
     return rows.map(_transactionFromRow).toList();
+  }
+
+  /// Count of transactions with no category assigned yet.
+  Future<int> getUnlabelledCount() async {
+    final db = await _database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM transactions WHERE category_id IS NULL',
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// Distinct bank codes present in the local data, e.g. ['HDFC', 'UBI'].
+  Future<List<String>> getDistinctBankCodes() async {
+    final db = await _database;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT bank_code FROM transactions WHERE bank_code IS NOT NULL ORDER BY bank_code',
+    );
+    return rows.map((r) => r['bank_code'] as String).toList();
   }
 
   Future<void> markSynced(List<int> transactionIds) async {
@@ -118,6 +172,21 @@ class DatabaseService {
     );
   }
 
+  Future<void> updateNotes(int transactionId, String notes) async {
+    final db = await _database;
+    await db.update(
+      'transactions',
+      {'notes': notes},
+      where: 'id = ?',
+      whereArgs: [transactionId],
+    );
+  }
+
+  Future<void> deleteTransaction(int transactionId) async {
+    final db = await _database;
+    await db.delete('transactions', where: 'id = ?', whereArgs: [transactionId]);
+  }
+
   Future<List<Category>> getCategories() async {
     final db = await _database;
     final rows = await db.query('category', orderBy: 'name');
@@ -134,6 +203,19 @@ class DatabaseService {
     return Category(id: id, name: name);
   }
 
+  Future<void> deleteCategory(int categoryId) async {
+    final db = await _database;
+    await db.transaction((txn) async {
+      await txn.update(
+        'transactions',
+        {'category_id': null},
+        where: 'category_id = ?',
+        whereArgs: [categoryId],
+      );
+      await txn.delete('category', where: 'id = ?', whereArgs: [categoryId]);
+    });
+  }
+
   UpiTransaction _transactionFromRow(Map<String, Object?> r) {
     return UpiTransaction(
       id: r['id'] as int,
@@ -146,6 +228,14 @@ class DatabaseService {
       categoryId: r['category_id'] as int?,
       categoryName: r['category_name'] as String?,
       syncedToSheet: (r['synced_to_sheet'] as int? ?? 0) == 1,
+      bankCode: r['bank_code'] as String?,
+      bankName: r['bank_name'] as String?,
+      merchantName: r['merchant_name'] as String?,
+      upiId: r['upi_id'] as String?,
+      referenceNo: r['reference_no'] as String?,
+      transactionType: r['transaction_type'] as String?,
+      status: r['status'] as String?,
+      notes: r['notes'] as String?,
     );
   }
 }

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-import 'dashboard_tab.dart';
+import 'analytics_tab.dart';
 import 'home_tab.dart';
-import 'profile_screen.dart';
-import 'sync_screen.dart';
+import 'settings_screen.dart';
+import 'transactions_screen.dart';
 
-/// Bottom-nav shell: Home / Dashboard / Sync / Profile.
-/// Each tab keeps its own state via IndexedStack (e.g. Sync's fetched list
-/// and Profile's form stay intact when you switch tabs and come back).
+/// Bottom-nav shell: Home / Transactions / Analytics / Settings.
+/// Each tab keeps its own state via IndexedStack (e.g. Transactions' fetched
+/// list and Settings' form stay intact when you switch tabs and come back).
 class RootScreen extends StatefulWidget {
   const RootScreen({super.key});
 
@@ -20,9 +20,9 @@ class _RootScreenState extends State<RootScreen> {
 
   static const _tabs = [
     HomeTab(),
-    DashboardTab(),
-    SyncScreen(),
-    ProfileScreen(),
+    TransactionsScreen(),
+    AnalyticsTab(),
+    SettingsScreen(),
   ];
 
   @override
@@ -34,9 +34,9 @@ class _RootScreenState extends State<RootScreen> {
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.space_dashboard_outlined), label: 'Dashboard'),
-          NavigationDestination(icon: Icon(Icons.sync_outlined), label: 'Sync'),
-          NavigationDestination(icon: Icon(Icons.person_outline), label: 'Profile'),
+          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), label: 'Transactions'),
+          NavigationDestination(icon: Icon(Icons.bar_chart_outlined), label: 'Analytics'),
+          NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
         ],
       ),
     );

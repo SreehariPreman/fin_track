@@ -18,8 +18,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Dashboard'), findsOneWidget);
-    expect(find.text('Sync'), findsWidgets);
-    expect(find.text('Profile'), findsWidgets);
+    expect(find.text('Transactions'), findsWidgets);
+    expect(find.text('Analytics'), findsWidgets);
+    expect(find.text('Settings'), findsWidgets);
   });
 }

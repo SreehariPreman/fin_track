@@ -8,15 +8,17 @@ import '../services/google_sheets_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/app_card.dart';
+import 'categories_screen.dart';
 
-class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+/// Settings: Gmail connection, categories, and the Google Sheets backup.
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
 
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passcodeController = TextEditingController();
@@ -145,7 +147,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _saving = false);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saved. You can now fetch transactions from Sync.')),
+      const SnackBar(content: Text('Saved. You can now fetch transactions from Transactions.')),
     );
   }
 
@@ -159,7 +161,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
+      appBar: AppBar(title: const Text('Settings')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -224,6 +226,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   )
                                 : const Text('Save'),
                           ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    AppCard(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const CategoriesScreen()),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Categories', style: AppTextStyles.sectionTitle),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Add, rename, or remove the labels used to categorise transactions.',
+                                  style: AppTextStyles.bodySecondary,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, color: AppColors.textMuted),
                         ],
                       ),
                     ),

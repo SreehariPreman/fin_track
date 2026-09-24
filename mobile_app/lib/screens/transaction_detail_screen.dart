@@ -6,7 +6,9 @@ import '../services/database_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/app_card.dart';
-import '../widgets/category_picker_sheet.dart';
+import '../widgets/category_avatar.dart';
+import 'label_transaction_screen.dart';
+import 'original_email_screen.dart';
 
 class TransactionDetailScreen extends StatefulWidget {
   final UpiTransaction transaction;
@@ -20,95 +22,193 @@ class TransactionDetailScreen extends StatefulWidget {
 class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   final _db = DatabaseService.instance;
   late UpiTransaction _transaction;
+  late TextEditingController _notesController;
+  bool _editingNotes = false;
 
   @override
   void initState() {
     super.initState();
     _transaction = widget.transaction;
+    _notesController = TextEditingController(text: _transaction.notes ?? '');
   }
 
-  Future<void> _label() async {
-    final category = await CategoryPickerSheet.show(context);
-    if (category == null || _transaction.id == null) return;
-    await _db.assignCategory(_transaction.id!, category.id);
+  @override
+  void dispose() {
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _openLabelScreen() async {
+    if (_transaction.id == null) return;
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => LabelTransactionScreen(transaction: _transaction)),
+    );
+    if (changed == true) {
+      final refreshed = (await _db.getAllTransactions())
+          .where((t) => t.id == _transaction.id)
+          .cast<UpiTransaction?>()
+          .firstWhere((t) => t != null, orElse: () => null);
+      if (refreshed != null && mounted) {
+        setState(() {
+          _transaction = refreshed;
+          _notesController.text = refreshed.notes ?? '';
+        });
+      }
+    }
+  }
+
+  Future<void> _saveNotes() async {
+    if (_transaction.id == null) return;
+    await _db.updateNotes(_transaction.id!, _notesController.text.trim());
     setState(() {
-      _transaction = _transaction.copyWith(
-        categoryId: category.id,
-        categoryName: category.name,
-      );
+      _transaction = _transaction.copyWith(notes: _notesController.text.trim());
+      _editingNotes = false;
     });
+  }
+
+  Future<void> _delete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete transaction?'),
+        content: const Text('This removes it from your local history. This can\'t be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || _transaction.id == null) return;
+    await _db.deleteTransaction(_transaction.id!);
+    if (!mounted) return;
+    Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
     final t = _transaction;
-    final dateStr = t.date != null ? DateFormat('dd MMM yyyy · hh:mm a').format(t.date!) : 'Unknown date';
+    final dateStr = t.date != null ? DateFormat('dd MMM yyyy · h:mm a').format(t.date!) : 'Unknown date';
     final amountStr = t.amount != null ? '₹${t.amount!.toStringAsFixed(2)}' : 'Amount not detected';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Transaction')),
+      appBar: AppBar(title: const Text('Transaction details')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Hero
+            Column(
+              children: [
+                t.categoryId != null
+                    ? CategoryAvatar(categoryId: t.categoryId!, name: t.categoryName ?? '?', size: 64)
+                    : const NeedsLabelAvatar(size: 64),
+                const SizedBox(height: 12),
+                Text(t.displayName, style: AppTextStyles.sectionTitle, textAlign: TextAlign.center),
+                const SizedBox(height: 6),
+                Text(amountStr, style: AppTextStyles.amountLarge.copyWith(fontSize: 30)),
+                const SizedBox(height: 4),
+                Text(dateStr, style: AppTextStyles.bodySecondary),
+              ],
+            ),
+            const SizedBox(height: 24),
+
+            // Details card
             AppCard(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(amountStr, style: AppTextStyles.amountLarge),
-                  const SizedBox(height: 6),
-                  Text(dateStr, style: AppTextStyles.bodySecondary),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Chip(
-                        avatar: Icon(
-                          Icons.label_outline,
-                          size: 16,
-                          color: t.categoryName == null ? AppColors.textMuted : AppColors.primary,
-                        ),
-                        label: Text(t.categoryName ?? 'Uncategorised'),
-                        backgroundColor: t.categoryName == null
-                            ? AppColors.background
-                            : AppColors.primary.withValues(alpha: 0.1),
-                        side: BorderSide(
-                          color: t.categoryName == null ? AppColors.border : Colors.transparent,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: _label,
-                        child: Text(t.categoryName == null ? 'Add label' : 'Change label'),
-                      ),
-                    ],
-                  ),
+                  _DetailRow(label: 'Bank', value: t.bankName),
+                  _DetailRow(label: 'UPI ID', value: t.upiId),
+                  _DetailRow(label: 'Reference No.', value: t.referenceNo),
+                  _DetailRow(label: 'Transaction Type', value: t.transactionType),
+                  _DetailRow(label: 'Status', value: t.status, isLast: true),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Subject', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
-                  const SizedBox(height: 6),
-                  Text(t.subject, style: AppTextStyles.body),
-                ],
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => OriginalEmailScreen(subject: t.subject, body: t.body),
+                ),
               ),
+              icon: const Icon(Icons.mail_outline, size: 18),
+              label: const Text('View Original Email'),
             ),
             const SizedBox(height: 16),
+
+            // Category
             AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              onTap: _openLabelScreen,
+              child: Row(
                 children: [
-                  Text('Full email body', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
-                  const SizedBox(height: 6),
+                  Text('Category', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
+                  const Spacer(),
                   Text(
-                    t.body.isEmpty ? '(empty)' : t.body,
-                    style: AppTextStyles.bodySecondary,
+                    t.categoryName ?? 'Needs Label',
+                    style: AppTextStyles.body.copyWith(
+                      color: t.categoryName == null ? AppColors.warning : AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right, color: AppColors.textMuted),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Notes
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Notes', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
+                  const SizedBox(height: 8),
+                  if (_editingNotes)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
+                          controller: _notesController,
+                          maxLines: 3,
+                          autofocus: true,
+                          decoration: const InputDecoration(hintText: 'Add a note'),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton(onPressed: _saveNotes, child: const Text('Save')),
+                        ),
+                      ],
+                    )
+                  else if ((t.notes ?? '').isNotEmpty)
+                    InkWell(
+                      onTap: () => setState(() => _editingNotes = true),
+                      child: Text(t.notes!, style: AppTextStyles.bodySecondary),
+                    )
+                  else
+                    OutlinedButton.icon(
+                      onPressed: () => setState(() => _editingNotes = true),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add Note'),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // Destructive action, visually separated
+            const Divider(),
+            const SizedBox(height: 12),
+            Center(
+              child: TextButton.icon(
+                onPressed: _delete,
+                icon: Icon(Icons.delete_outline, color: AppColors.error),
+                label: Text('Delete Transaction', style: TextStyle(color: AppColors.error)),
               ),
             ),
           ],
@@ -118,3 +218,32 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
   }
 }
 
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String? value;
+  final bool isLast;
+
+  const _DetailRow({required this.label, required this.value, this.isLast = false});
+
+  @override
+  Widget build(BuildContext context) {
+    if (value == null || value!.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: Text(label, style: AppTextStyles.bodySecondary)),
+          Expanded(
+            flex: 2,
+            child: Text(
+              value!,
+              textAlign: TextAlign.right,
+              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
