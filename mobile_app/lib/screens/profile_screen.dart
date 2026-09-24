@@ -5,6 +5,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/credentials_service.dart';
 import '../services/database_service.dart';
 import '../services/google_sheets_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
+import '../widgets/app_card.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -160,133 +163,153 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               child: Form(
                 key: _formKey,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text(
-                      'Enter your Gmail address and app passcode. '
-                      'These are stored only on this device (Android Keystore) '
-                      'and used solely to connect directly to imap.gmail.com.',
-                      style: TextStyle(color: Colors.black54),
-                    ),
-                    const SizedBox(height: 20),
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email address',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Email is required';
-                        }
-                        if (!value.contains('@')) return 'Enter a valid email';
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _passcodeController,
-                      obscureText: _obscurePasscode,
-                      decoration: InputDecoration(
-                        labelText: 'App passcode',
-                        helperText: 'Gmail App Password (16 characters), not your normal password',
-                        border: const OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscurePasscode ? Icons.visibility : Icons.visibility_off),
-                          onPressed: () => setState(() => _obscurePasscode = !_obscurePasscode),
-                        ),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'App passcode is required';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: _saving ? null : _save,
-                      child: _saving
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save'),
-                    ),
-                    const Divider(height: 48),
-                    Text(
-                      'Google Sheets backup',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'The app itself always keeps your full transaction history '
-                      'on this device. Connecting Google is optional — it only lets '
-                      'you push a backup copy to a Google Sheet whenever you tap Sync. '
-                      'Nothing is synced automatically.',
-                      style: TextStyle(color: Colors.black54),
-                    ),
-                    const SizedBox(height: 16),
-                    if (_googleAccount == null)
-                      OutlinedButton.icon(
-                        onPressed: _connectingGoogle ? null : _connectGoogle,
-                        icon: _connectingGoogle
-                            ? const SizedBox(
-                                height: 16,
-                                width: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.login),
-                        label: const Text('Connect Google account'),
-                      )
-                    else ...[
-                      Row(
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(child: Text('Connected as ${_googleAccount!.email}')),
-                          TextButton(
-                            onPressed: _disconnectGoogle,
-                            child: const Text('Disconnect'),
+                          Text('Gmail connection', style: AppTextStyles.sectionTitle),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Enter your Gmail address and app passcode. These are '
+                            'stored only on this device (Android Keystore) and used '
+                            'solely to connect directly to imap.gmail.com.',
+                            style: AppTextStyles.bodySecondary,
+                          ),
+                          const SizedBox(height: 20),
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(labelText: 'Email address'),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Email is required';
+                              }
+                              if (!value.contains('@')) return 'Enter a valid email';
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _passcodeController,
+                            obscureText: _obscurePasscode,
+                            decoration: InputDecoration(
+                              labelText: 'App passcode',
+                              helperText: 'Gmail App Password (16 characters), not your normal password',
+                              suffixIcon: IconButton(
+                                icon: Icon(_obscurePasscode ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                                onPressed: () => setState(() => _obscurePasscode = !_obscurePasscode),
+                              ),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'App passcode is required';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 20),
+                          FilledButton(
+                            onPressed: _saving ? null : _save,
+                            child: _saving
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Text('Save'),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: _syncing ? null : _syncToSheet,
-                        icon: _syncing
-                            ? const SizedBox(
-                                height: 16,
-                                width: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Icon(Icons.cloud_upload_outlined),
-                        label: Text(_syncing ? 'Syncing...' : 'Sync to Google Sheet'),
+                    ),
+                    const SizedBox(height: 16),
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text('Google Sheets backup', style: AppTextStyles.sectionTitle),
+                          const SizedBox(height: 6),
+                          Text(
+                            'The app itself always keeps your full transaction history '
+                            'on this device. Connecting Google is optional — it only lets '
+                            'you push a backup copy to a Google Sheet whenever you tap Sync. '
+                            'Nothing is synced automatically.',
+                            style: AppTextStyles.bodySecondary,
+                          ),
+                          const SizedBox(height: 16),
+                          if (_googleAccount == null)
+                            OutlinedButton.icon(
+                              onPressed: _connectingGoogle ? null : _connectGoogle,
+                              icon: _connectingGoogle
+                                  ? const SizedBox(
+                                      height: 16,
+                                      width: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.login),
+                              label: const Text('Connect Google account'),
+                            )
+                          else ...[
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Connected as ${_googleAccount!.email}',
+                                    style: AppTextStyles.body,
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _disconnectGoogle,
+                                  child: const Text('Disconnect'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              onPressed: _syncing ? null : _syncToSheet,
+                              icon: _syncing
+                                  ? const SizedBox(
+                                      height: 16,
+                                      width: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.cloud_upload_outlined),
+                              label: Text(_syncing ? 'Syncing...' : 'Sync to Google Sheet'),
+                            ),
+                          ],
+                          if (_spreadsheetUrl != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: TextButton.icon(
+                                onPressed: _openSpreadsheet,
+                                icon: const Icon(Icons.open_in_new, size: 18),
+                                label: const Text('Open Google Sheet'),
+                              ),
+                            ),
+                          if (_sheetsError != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                _sheetsError!,
+                                style: AppTextStyles.bodySecondary.copyWith(color: AppColors.error),
+                              ),
+                            ),
+                          if (_syncMessage != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                _syncMessage!,
+                                style: AppTextStyles.bodySecondary.copyWith(color: AppColors.success),
+                              ),
+                            ),
+                        ],
                       ),
-                    ],
-                    if (_spreadsheetUrl != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: TextButton.icon(
-                          onPressed: _openSpreadsheet,
-                          icon: const Icon(Icons.open_in_new, size: 18),
-                          label: const Text('Open Google Sheet'),
-                        ),
-                      ),
-                    if (_sheetsError != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(_sheetsError!, style: const TextStyle(color: Colors.red)),
-                      ),
-                    if (_syncMessage != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(_syncMessage!, style: const TextStyle(color: Colors.green)),
-                      ),
+                    ),
                   ],
                 ),
               ),

@@ -3,6 +3,9 @@ import 'package:intl/intl.dart';
 
 import '../models/transaction.dart';
 import '../services/database_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
+import '../widgets/app_card.dart';
 import '../widgets/category_picker_sheet.dart';
 
 class TransactionDetailScreen extends StatefulWidget {
@@ -45,38 +48,73 @@ class _TransactionDetailScreenState extends State<TransactionDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Transaction')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(amountStr, style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: 4),
-            Text(dateStr, style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Chip(
-                  avatar: const Icon(Icons.label_outline, size: 16),
-                  label: Text(t.categoryName ?? 'Uncategorised'),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: _label,
-                  child: Text(t.categoryName == null ? 'Add label' : 'Change label'),
-                ),
-              ],
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(amountStr, style: AppTextStyles.amountLarge),
+                  const SizedBox(height: 6),
+                  Text(dateStr, style: AppTextStyles.bodySecondary),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Chip(
+                        avatar: Icon(
+                          Icons.label_outline,
+                          size: 16,
+                          color: t.categoryName == null ? AppColors.textMuted : AppColors.primary,
+                        ),
+                        label: Text(t.categoryName ?? 'Uncategorised'),
+                        backgroundColor: t.categoryName == null
+                            ? AppColors.background
+                            : AppColors.primary.withValues(alpha: 0.1),
+                        side: BorderSide(
+                          color: t.categoryName == null ? AppColors.border : Colors.transparent,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: _label,
+                        child: Text(t.categoryName == null ? 'Add label' : 'Change label'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            const Divider(height: 32),
-            Text('Subject', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 4),
-            Text(t.subject),
-            const SizedBox(height: 20),
-            Text('Full email body', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 4),
-            Text(t.body.isEmpty ? '(empty)' : t.body),
+            const SizedBox(height: 16),
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Subject', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
+                  const SizedBox(height: 6),
+                  Text(t.subject, style: AppTextStyles.body),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Full email body', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
+                  const SizedBox(height: 6),
+                  Text(
+                    t.body.isEmpty ? '(empty)' : t.body,
+                    style: AppTextStyles.bodySecondary,
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 }
+

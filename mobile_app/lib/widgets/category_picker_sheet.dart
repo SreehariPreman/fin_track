@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/category.dart';
 import '../services/database_service.dart';
+import '../theme/app_colors.dart';
+import '../theme/app_text_styles.dart';
 
 /// Bottom sheet to pick (or create) a category for a transaction.
 /// Returns the chosen Category, or null if dismissed without a choice.
@@ -12,6 +14,10 @@ class CategoryPickerSheet extends StatefulWidget {
     return showModalBottomSheet<Category>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (_) => const CategoryPickerSheet(),
     );
   }
@@ -64,21 +70,21 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Label this transaction', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
+            Text('Label this transaction', style: AppTextStyles.sectionTitle),
+            const SizedBox(height: 14),
             if (_loading)
               const Center(child: CircularProgressIndicator())
             else if (_categories.isEmpty)
-              const Text('No categories yet — add one below.')
+              Text('No categories yet — add one below.', style: AppTextStyles.bodySecondary)
             else
               Wrap(
                 spacing: 8,
@@ -90,7 +96,7 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                         ))
                     .toList(),
               ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
             Row(
               children: [
                 Expanded(
@@ -98,7 +104,6 @@ class _CategoryPickerSheetState extends State<CategoryPickerSheet> {
                     controller: _newCategoryController,
                     decoration: InputDecoration(
                       hintText: 'New category (e.g. Food, Petrol)',
-                      border: const OutlineInputBorder(),
                       errorText: _error,
                     ),
                     onSubmitted: (_) => _createCategory(),

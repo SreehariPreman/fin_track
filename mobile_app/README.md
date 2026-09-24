@@ -1,27 +1,36 @@
-# Fin Track — Mobile App
+# SpendTrack — Mobile App
+
+*Track. Understand. Take Control.*
 
 A standalone Flutter app that connects **directly to Gmail over IMAP from
-your phone** to track your HDFC UPI transactions — same parsing logic as
-the desktop `fin_track` app, but no backend and no server in between.
+your phone** to track your HDFC UPI transactions — no backend, no server
+in between. (Internally the Android package id is still
+`com.fintrack.mobile_app` — kept as-is so the Google Sign-In OAuth client
+already registered for it keeps working; only the user-facing name changed.)
 
 Everything for this app lives inside this `mobile_app/` folder. It does not
 import anything from the rest of the repo.
 
 ## How it works
 
-- **Profile screen**: enter your Gmail address and a Gmail **App Password**
-  (16-character passcode, not your normal Gmail password). Stored only on
-  the device, in the Android Keystore (via `flutter_secure_storage`) —
-  never written to a plain file, never sent anywhere except directly to
-  `imap.gmail.com`.
-- **Home screen**: tap **"Fetch last 10 UPI transactions"** to connect live
-  over IMAP and pull your most recent UPI-related emails. New ones are
-  saved into a **local SQLite database on the device** — that database,
-  not Gmail, is what the list and any future dashboards are built from, so
-  your categorized history survives across fetches, app restarts, etc.
-- **Tap a transaction's "Label" chip** to assign it to a category (create
-  new categories inline — e.g. Food, Petrol, Rent). Tap the rest of the
-  card to see the full parsed email body.
+- **Bottom navigation**: Home · Dashboard · Sync · Profile.
+  - **Home** and **Dashboard** are placeholders ("Coming soon") for later
+    phases — see Backlog below.
+  - **Sync**: tap **"Fetch last 10 UPI transactions"** to connect live
+    over IMAP and pull your most recent UPI-related emails. New ones are
+    saved into a **local SQLite database on the device** — that database,
+    not Gmail, is what the list and any future dashboards are built from,
+    so your categorized history survives across fetches, app restarts, etc.
+    Tap a transaction to open it.
+  - **Profile**: enter your Gmail address and a Gmail **App Password**
+    (16-character passcode, not your normal Gmail password). Stored only
+    on the device, in the Android Keystore (via `flutter_secure_storage`)
+    — never written to a plain file, never sent anywhere except directly
+    to `imap.gmail.com`. Also hosts the optional Google Sheets backup.
+- **Transaction detail screen**: shows the amount, date, subject, and full
+  parsed email body, plus an **"Add label" / "Change label"** button to
+  assign a category (create new categories inline — e.g. Food, Petrol,
+  Rent).
 - **Google Sheets backup (optional, manual)**: in Profile, tap **"Connect
   Google account"** once (standard Google sign-in consent screen, no
   password ever touches this app). After that, tap **"Sync to Google
@@ -32,6 +41,29 @@ import anything from the rest of the repo.
 Amount/date/snippet parsing (`lib/services/parser_service.dart`) is a
 line-for-line Dart port of the desktop app's `email_service.py` regex
 patterns, so HDFC alerts parse identically.
+
+## Design system
+
+The whole app follows one design spec — light theme only, clean/minimal
+"modern fintech" look. It's centralized in `lib/theme/` so new screens
+stay consistent automatically:
+
+- `lib/theme/app_colors.dart` — the full color palette (primary `#2563EB`,
+  background `#F7F9FC`, card white, text/status colors). Change a value
+  here and it updates everywhere.
+- `lib/theme/app_text_styles.dart` — the type scale (screen title, section
+  title, large amount, body, supporting text), all on Google Fonts' Inter.
+- `lib/theme/app_theme.dart` — the `ThemeData` built from the above:
+  button styles, input fields, chips, nav bar, snackbars, etc. Screens
+  should pull styling from `Theme.of(context)` / these files rather than
+  hardcoding colors or one-off styles.
+- `lib/widgets/app_card.dart` — the one card component (rounded, white,
+  soft shadow) used everywhere a card-like section is needed.
+- `lib/widgets/coming_soon.dart` — shared empty-state placeholder.
+
+When building new screens: reuse `AppCard`, pull colors from `AppColors`,
+text styles from `AppTextStyles`, and rely on the themed
+buttons/chips/inputs rather than styling widgets ad hoc.
 
 ## Requirements
 
@@ -129,7 +161,7 @@ personal use.
    reload works as usual (`r` in the terminal, or save in your editor).
 
 3. In the app: go to **Profile**, enter your email + app password, **Save**,
-   go back to **Home**, tap **Fetch**.
+   go to **Sync**, tap **Fetch**.
 
 ## Run on your physical Android phone
 
@@ -203,16 +235,38 @@ Cloud setup section above) before it'll work in a release build.
   needs its own one-time "Connect Google account" consent, done through
   standard Google Sign-In (no password ever seen or stored by this app).
 
-## Planned next phases (not built yet)
+## Backlog / known issues
 
-1. **Background notifications**: periodic background sync (Android
-   `WorkManager`, minimum ~15 minute interval due to OS battery limits)
-   that checks for new UPI mail and fires a local notification prompting
-   you to categorize it — no backend needed, reuses the same IMAP
-   credentials.
-2. **Dashboards**: category breakdown, spend-over-time charts (`fl_chart`),
-   and week/month/year filters — all reading from the local SQLite
-   database, no network required.
+Not built/fixed yet — rough priority order, but open to reordering:
+
+- [ ] **Fix transaction time parsing** — some rows show an incorrect or
+  clearly-wrong date/time (e.g. a future date pulled from unrelated text
+  in the email body, like a card due-date). The regex-based date parser
+  (ported from the desktop app) needs tightening, probably by trusting
+  the IMAP message header date more and the in-body regex less.
+- [ ] **Credit vs debit marking** — transactions aren't currently tagged
+  as money in vs money out; list/detail should show a clear
+  credited/debited indicator (icon/color) instead of just a raw amount.
+- [ ] **Hide mail body by default** — the transaction detail screen
+  currently always shows the full parsed email body. Should be
+  collapsed/hidden by default with a "View mail body" action, and when
+  shown, rendered as HTML (the original formatting) rather than the
+  current stripped-to-plain-text version.
+- [ ] **Bank-wise categorization** — categorize/filter transactions by
+  bank, not just by user-defined category (currently only HDFC is
+  parsed at all; this implies multi-bank parsing support too).
+- [ ] **Dedicated category management section** — category creation
+  currently only happens inline from the label picker sheet; add a
+  proper screen to view/rename/delete categories.
+- [ ] **Build out Home tab** — currently a placeholder.
+- [ ] **Build out Dashboard tab** — category breakdown, spend-over-time
+  charts (`fl_chart`), week/month/year filters, all reading from the
+  local SQLite database.
+- [ ] **Push notifications on new transactions** — periodic background
+  sync (Android `WorkManager`, minimum ~15 minute interval due to OS
+  battery limits) that checks for new UPI mail and fires a local
+  notification prompting you to categorize it — no backend needed,
+  reuses the same IMAP credentials.
 
 ## Project structure
 
@@ -220,6 +274,10 @@ Cloud setup section above) before it'll work in a release build.
 mobile_app/
   lib/
     main.dart                          # app entry point
+    theme/
+      app_colors.dart                  # color palette
+      app_text_styles.dart             # type scale
+      app_theme.dart                   # ThemeData built from the above
     models/
       transaction.dart                 # UpiTransaction: parsed + categorized transaction
       category.dart                    # Category: id + name
@@ -230,11 +288,17 @@ mobile_app/
       database_service.dart            # local SQLite: transactions + categories
       google_sheets_service.dart       # Google Sign-In + append-only Sheets backup
     widgets/
+      app_card.dart                    # shared card component
+      coming_soon.dart                 # shared empty-state placeholder
       category_picker_sheet.dart       # bottom sheet to label a transaction
     screens/
-      home_screen.dart                 # fetch button + local transaction list
+      splash_screen.dart               # brand intro
+      root_screen.dart                 # bottom-nav shell (Home/Dashboard/Sync/Profile)
+      home_tab.dart                    # placeholder
+      dashboard_tab.dart               # placeholder
+      sync_screen.dart                 # fetch button + local transaction list
       profile_screen.dart              # email/passcode entry + Google Sheets backup
-      transaction_detail_screen.dart   # full email body view
+      transaction_detail_screen.dart   # full email body view + labeling
   android/                             # generated Android project
   test/
     widget_test.dart
@@ -253,3 +317,4 @@ mobile_app/
   (Android Keystore-backed) — for the IMAP email/app-passcode only
 - **Google Sheets backup**: [`google_sign_in`](https://pub.dev/packages/google_sign_in)
   for OAuth, plain REST calls (via `http`) to the Sheets API v4
+- **Typography**: [`google_fonts`](https://pub.dev/packages/google_fonts) (Inter)
