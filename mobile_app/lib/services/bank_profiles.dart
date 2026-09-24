@@ -58,19 +58,66 @@ double? _parseAmount(RegExp pattern, String text) {
   return double.tryParse(raw);
 }
 
+/// Extracts several "Label : value" fields from [body], where a value is
+/// bounded by wherever the *next* label (from [labelsInOrder]) starts, or
+/// the end of the string for the last one — not by a newline. Real emails
+/// often lose their line breaks somewhere in HTML-to-text conversion, so
+/// anchoring to the next known label (rather than "until end of line") is
+/// what actually keeps each field from swallowing the rest of the email.
+/// Common openers for the boilerplate safety notice that trails most bank
+/// alert emails — used as a fallback stop for whichever field happens to
+/// be last, so it doesn't run on to the end of that boilerplate too.
+const _trailingBoilerplateStops = [
+  'If you have not',
+  'If you did not',
+  'Need Help',
+  'Warm [Rr]egards',
+  'Safe Banking',
+];
+
+Map<String, String?> _extractLabeledFields(String body, List<String> labelsInOrder) {
+  final result = <String, String?>{};
+  for (var i = 0; i < labelsInOrder.length; i++) {
+    final label = labelsInOrder[i];
+    final laterLabels = labelsInOrder.sublist(i + 1).map(RegExp.escape).join('|');
+    final stops = [
+      if (laterLabels.isNotEmpty) '(?:(?:\\d+\\.)?\\s*(?:$laterLabels)\\s*:)',
+      r'\n',
+      ..._trailingBoilerplateStops,
+    ];
+    final boundary = '(?:${stops.join('|')})|\$';
+    final pattern = RegExp(
+      '${RegExp.escape(label)}\\s*:\\s*(.+?)(?=$boundary)',
+      caseSensitive: false,
+      dotAll: true,
+    );
+    result[label] = pattern.firstMatch(body)?.group(1)?.trim();
+  }
+  return result;
+}
+
 final BankProfile hdfcBank = BankProfile(
   code: 'HDFC',
   name: 'HDFC Bank',
   senderEmail: 'alerts@hdfcbank.bank.in',
   badgeColor: const Color(0xFF1E3A8A),
   parse: (subject, body) {
+    // HDFC sends at least two templates: a debit alert ("Rs.X is debited
+    // ... towards VPA <id> (<name>) on DD-MM-YY") and a credit notification
+    // ("Rs.X has been successfully credited ... Sender: NAME (VPA: id)
+    // ... Date: DD-MM-YY"). Both are handled here.
     final amount = _parseAmount(
-      RegExp(r'Rs\.?\s*([\d,]+(?:\.\d{2})?)\s+is\s+debited', caseSensitive: false),
+      RegExp(
+        r'Rs\.?\s*([\d,]+(?:\.\d{2})?)\s+(?:is\s+debited|has\s+been\s+(?:successfully\s+)?credited)',
+        caseSensitive: false,
+      ),
       body,
     );
 
     DateTime? date;
-    final dateMatch = RegExp(r'\bon\s+(\d{1,2})-(\d{1,2})-(\d{2,4})\b').firstMatch(body);
+    final dateMatch =
+        RegExp(r'(?:\bon\s+|\bDate:?\s*)(\d{1,2})-(\d{1,2})-(\d{2,4})', caseSensitive: false)
+            .firstMatch(body);
     if (dateMatch != null) {
       final d = int.tryParse(dateMatch.group(1)!);
       final mo = int.tryParse(dateMatch.group(2)!);
@@ -83,17 +130,27 @@ final BankProfile hdfcBank = BankProfile(
 
     String? merchantName;
     String? upiId;
-    final vpaMatch = RegExp(r'towards\s+VPA\s+(\S+)\s*\(([^)]+)\)', caseSensitive: false)
+    final debitMatch = RegExp(r'towards\s+VPA\s+(\S+)\s*\(([^)]+)\)', caseSensitive: false)
         .firstMatch(body);
-    if (vpaMatch != null) {
-      upiId = vpaMatch.group(1)?.trim();
-      merchantName = vpaMatch.group(2)?.trim();
+    if (debitMatch != null) {
+      upiId = debitMatch.group(1)?.trim();
+      merchantName = debitMatch.group(2)?.trim();
+    } else {
+      final creditMatch =
+          RegExp(r'Sender:\s*([^(]+?)\s*\(\s*VPA:?\s*([^)]+)\)', caseSensitive: false)
+              .firstMatch(body);
+      if (creditMatch != null) {
+        merchantName = creditMatch.group(1)?.trim();
+        upiId = creditMatch.group(2)?.trim();
+      }
     }
 
-    final refMatch =
-        RegExp(r'UPI transaction reference no\.?:?\s*(\w+)', caseSensitive: false).firstMatch(body);
+    final refMatch = RegExp(
+      r'UPI\s*(?:transaction\s*)?reference\s*no\.?:?\s*(\w+)',
+      caseSensitive: false,
+    ).firstMatch(body);
     final accountMatch =
-        RegExp(r'account ending\s+(\w+)', caseSensitive: false).firstMatch(body);
+        RegExp(r'account ending\s*(?:in\s*)?(\w+)', caseSensitive: false).firstMatch(body);
 
     return ParsedTransactionFields(
       amount: amount,
@@ -108,49 +165,51 @@ final BankProfile hdfcBank = BankProfile(
   },
 );
 
+const _unionBankLabels = [
+  'Payee Name',
+  'Amount',
+  'Channel',
+  'Transaction ID/RRN',
+  'Transaction Status',
+  'Transaction Date and Time',
+  'Debit Account Number',
+];
+
 final BankProfile unionBank = BankProfile(
   code: 'UBI',
   name: 'Union Bank',
   senderEmail: 'noreplyubi-txn@ubi.bank.in',
   badgeColor: const Color(0xFF7F1D1D),
   parse: (subject, body) {
-    final amount = _parseAmount(
-      RegExp(r'Amount\s*:\s*Rs\.?\s*([\d,]+(?:\.\d{2})?)', caseSensitive: false),
-      body,
-    );
+    final fields = _extractLabeledFields(body, _unionBankLabels);
+
+    final amountText = fields['Amount'];
+    final amount = amountText != null
+        ? _parseAmount(RegExp(r'Rs\.?\s*([\d,]+(?:\.\d{2})?)', caseSensitive: false), amountText)
+        : null;
 
     DateTime? date;
-    final dateMatch = RegExp(
-      r'Transaction Date and Time\s*:\s*(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})',
-      caseSensitive: false,
-    ).firstMatch(body);
-    if (dateMatch != null) {
-      final parts = dateMatch.groups([1, 2, 3, 4, 5, 6]).map((s) => int.tryParse(s ?? '')).toList();
-      if (parts.every((p) => p != null)) {
-        date = DateTime(parts[2]!, parts[1]!, parts[0]!, parts[3]!, parts[4]!, parts[5]!);
+    final dateText = fields['Transaction Date and Time'];
+    if (dateText != null) {
+      final dateMatch = RegExp(r'(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})')
+          .firstMatch(dateText);
+      if (dateMatch != null) {
+        final parts = dateMatch.groups([1, 2, 3, 4, 5, 6]).map((s) => int.tryParse(s ?? '')).toList();
+        if (parts.every((p) => p != null)) {
+          date = DateTime(parts[2]!, parts[1]!, parts[0]!, parts[3]!, parts[4]!, parts[5]!);
+        }
       }
-    }
-
-    String? line(String label) {
-      // Stops at the next newline, the next numbered field (e.g. "6. Transaction..."),
-      // or end of string — defensive in case a line break got lost upstream,
-      // so a missing newline can't make this swallow the rest of the email.
-      final m = RegExp(
-        '$label\\s*:\\s*(.+?)(?=\\n|\\s+\\d+\\.\\s|\$)',
-        caseSensitive: false,
-      ).firstMatch(body);
-      return m?.group(1)?.trim();
     }
 
     return ParsedTransactionFields(
       amount: amount,
       date: date,
-      merchantName: line('Payee Name'),
+      merchantName: fields['Payee Name'],
       upiId: null,
-      referenceNo: line('Transaction ID/RRN'),
-      transactionType: line('Channel'),
-      status: line('Transaction Status'),
-      accountMasked: line('Debit Account Number'),
+      referenceNo: fields['Transaction ID/RRN'],
+      transactionType: fields['Channel'],
+      status: fields['Transaction Status'],
+      accountMasked: fields['Debit Account Number'],
     );
   },
 );

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:enough_mail/enough_mail.dart';
 
 import '../models/transaction.dart';
@@ -47,9 +48,10 @@ class ImapService {
           if (bank == null) continue;
 
           final subject = msg.decodeSubject() ?? '';
-          final body = (msg.decodeTextPlainPart() ??
-                  _stripHtml(msg.decodeTextHtmlPart() ?? ''))
-              .trim();
+          final plainPart = msg.decodeTextPlainPart();
+          final body = (plainPart != null && plainPart.trim().isNotEmpty)
+              ? plainPart.trim()
+              : _stripHtml(msg.decodeTextHtmlPart() ?? '').trim();
 
           final parsed = bank.parse(subject, body);
           // Some banks' alert bodies (e.g. HDFC) only give a date, no time
@@ -71,7 +73,10 @@ class ImapService {
             subject: subject.length > 120 ? subject.substring(0, 120) : subject,
             amount: parsed.amount,
             date: date,
-            snippet: merchant ?? (body.isNotEmpty ? body : subject).replaceAll('\n', ' ').trim(),
+            // Never fall back to dumping the raw body here — if merchant
+            // extraction failed, the subject line is still a much safer
+            // "name" to show than an arbitrary chunk of the email.
+            snippet: merchant ?? (subject.isNotEmpty ? subject : '${bank.name} transaction'),
             body: body,
             bankCode: bank.code,
             bankName: bank.name,
@@ -101,9 +106,17 @@ class ImapService {
   /// "Label : value" email into one giant line, which breaks per-field
   /// parsing (a "until end of line" regex then captures the rest of the
   /// whole email instead of just that field).
+  @visibleForTesting
+  static String stripHtmlForTesting(String html) => _stripHtml(html);
+
   static String _stripHtml(String html) {
     var text = html
-        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        // <style>/<script> blocks must be removed *with their contents* —
+        // otherwise raw CSS/JS text ends up looking like part of the mail.
+        .replaceAll(RegExp(r'<style[^>]*>.*?</style>', caseSensitive: false, dotAll: true), '')
+        .replaceAll(RegExp(r'<script[^>]*>.*?</script>', caseSensitive: false, dotAll: true), '')
+        // Any <br ...> variant (attributes, self-closed or not).
+        .replaceAll(RegExp(r'<br[^>]*>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'</(p|div|tr|li|h[1-6])\s*>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'<[^>]+>'), '')
         .replaceAll('&nbsp;', ' ')
@@ -111,6 +124,8 @@ class ImapService {
         .replaceAll('&lt;', '<')
         .replaceAll('&gt;', '>')
         .replaceAll(RegExp(r'&(#39|apos);'), "'")
+        .replaceAll(RegExp(r'&#60;'), '<')
+        .replaceAll(RegExp(r'&#62;'), '>')
         .replaceAll('&quot;', '"');
     // Collapse repeated spaces/tabs (but not newlines), and repeated blank lines.
     text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
