@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/notification_service.dart';
 import 'analytics_tab.dart';
 import 'home_tab.dart';
 import 'settings_screen.dart';
@@ -21,6 +22,19 @@ class _RootScreenState extends State<RootScreen> {
   /// Home's "Tap to review" sets this to 'unlabelled' and switches to the
   /// Transactions tab; Transactions picks it up and clears it back to null.
   final _pendingTransactionsFilter = ValueNotifier<String?>(null);
+
+  @override
+  void initState() {
+    super.initState();
+    // Handles the cold-start case: the app was launched by tapping a
+    // notification, so NotificationService already has a pending
+    // navigation request from before this widget (and its navigatorKey)
+    // existed. A warm tap (app already running) is handled directly by
+    // NotificationService's own response callback instead.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.instance.consumePending();
+    });
+  }
 
   @override
   void dispose() {

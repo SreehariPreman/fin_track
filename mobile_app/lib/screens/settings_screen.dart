@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../services/background_sync_service.dart';
 import '../services/credentials_service.dart';
 import '../services/database_service.dart';
 import '../services/google_sheets_service.dart';
+import '../services/notification_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../widgets/app_card.dart';
@@ -158,6 +160,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       email: _emailController.text,
       appPasscode: _passcodeController.text,
     );
+    // Now that there's something worth syncing in the background, ask for
+    // notification permission and schedule the periodic sync. Best-effort
+    // — a failure here (e.g. WorkManager unavailable) shouldn't block
+    // saving your credentials.
+    try {
+      await NotificationService.instance.requestPermission();
+      await BackgroundSyncService.register();
+    } catch (_) {
+      // ignore
+    }
     setState(() => _saving = false);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

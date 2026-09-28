@@ -166,6 +166,35 @@ class DatabaseService {
     return rows.map(_transactionFromRow).toList();
   }
 
+  /// A single transaction by its local id, or null if it no longer exists
+  /// (e.g. deleted) — used when opening a transaction from a notification.
+  Future<UpiTransaction?> getTransactionById(int id) async {
+    final db = await _database;
+    final rows = await db.rawQuery('''
+      SELECT $_kTxnColumns
+      FROM transactions t
+      LEFT JOIN category c ON c.id = t.category_id
+      WHERE t.id = ?
+      LIMIT 1
+    ''', [id]);
+    if (rows.isEmpty) return null;
+    return _transactionFromRow(rows.first);
+  }
+
+  /// Which of [emailIds] already exist locally — used by the background
+  /// sync to tell genuinely new transactions (worth a notification) apart
+  /// from ones it's simply refreshing.
+  Future<Set<String>> getExistingEmailIds(List<String> emailIds) async {
+    if (emailIds.isEmpty) return {};
+    final db = await _database;
+    final placeholders = List.filled(emailIds.length, '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT email_id FROM transactions WHERE email_id IN ($placeholders)',
+      emailIds,
+    );
+    return rows.map((r) => r['email_id'] as String).toSet();
+  }
+
   Future<List<UpiTransaction>> getUnsyncedTransactions() async {
     final db = await _database;
     final rows = await db.rawQuery('''

@@ -111,6 +111,57 @@ minimal (no gridlines, no axis clutter) per the design spec.
 Analytics-only — the Transactions tab keeps its own separate, simpler
 All/Unlabelled/per-bank filter chips.
 
+## Background sync & notifications
+
+A Flutter app cannot run continuously in the background or react to
+Gmail in real time — there is no persistent process to instantly detect
+new mail. What's actually implemented is a **periodic poll**:
+
+```
+Android WorkManager (every ~15 min, requires network)
+        │
+        ▼
+IMAP fetch (same path as Transactions' manual Fetch)
+        │
+        ▼
+Diff against what's already stored → genuinely new transactions
+        │
+        ▼
+Save locally
+        │
+        ▼
+Local notification per new transaction (capped at 5 per sync)
+```
+
+- **`lib/services/background_sync_service.dart`** — registers a
+  `WorkManager` periodic task (`registerPeriodicTask`, 15-minute
+  frequency — the OS-enforced minimum for periodic work, regardless of
+  what's requested; a phone in Doze can push this further out) and
+  defines `callbackDispatcher`, the top-level entry point Android
+  relaunches in a background isolate to run the sync. Registered after
+  Gmail credentials are saved in Settings, and re-asserted (a no-op if
+  already scheduled) on every app start.
+- **`lib/services/notification_service.dart`** — creates the Android
+  notification channel, requests the Android 13+ POST_NOTIFICATIONS
+  runtime permission (also on Settings save), shows the "New
+  transaction" notification with a **"Label Now"** action button, and
+  routes a tap straight to the right screen:
+  - Tapping the notification body → `TransactionDetailScreen`.
+  - Tapping **Label Now** → `LabelTransactionScreen` directly — never
+    the Transactions list first.
+  - Handles both a *warm* tap (app already running — routes
+    immediately) and a *cold* tap (app process was killed — the launch
+    request is detected via `getNotificationAppLaunchDetails()` and
+    replayed once `RootScreen` mounts and its `Navigator` exists).
+- Verified live: the permission dialog appears on Settings save, and
+  Android's own `dumpsys jobscheduler` confirms the periodic work is
+  registered against this app with the expected ~15 minute minimum
+  latency and network constraint. The actual 15-minutes-later
+  fetch-and-notify firing wasn't observed live in this pass (nothing to
+  trigger it against without real new mail arriving) — the sync logic
+  itself is a direct reuse of the already-verified `ImapService`/
+  `DatabaseService` fetch path.
+
 ## Design system
 
 The whole app follows one design spec — light theme only, clean/minimal
@@ -314,6 +365,10 @@ Cloud setup section above) before it'll work in a release build.
 - Only HDFC Bank and Union Bank are recognised right now (see the table
   above). A third bank means adding one more `BankProfile` — no other
   code changes needed.
+- Background notifications are **polling, not push** — up to ~15–30
+  minutes behind, by Android design (WorkManager's own minimum periodic
+  interval, plus Doze/battery-optimization delays on some OEMs). See
+  "Background sync & notifications" above.
 
 ## Backlog / known issues
 
@@ -353,20 +408,25 @@ Not built/fixed yet — rough priority order, but open to reordering:
   Trends sub-tabs with a month selector and a Filters sheet (Date Range /
   Bank / Category / Transaction Type), all reading from the local SQLite
   database via `lib/services/analytics_service.dart`.
-- [ ] **Push notifications on new transactions** — periodic background
-  sync (Android `WorkManager`, minimum ~15 minute interval due to OS
-  battery limits) that checks for new bank alert mail and fires a local
-  notification prompting you to categorize it — no backend needed,
-  reuses the same IMAP credentials.
+- [x] ~~Push notifications on new transactions~~ — done: periodic
+  `WorkManager` background sync (see "Background sync & notifications"
+  below).
 - [ ] **Export local data as CSV**.
-- sync center- google sheet options 
-    - user can export to sheet to new sheet if needed or use default one
-    - option to make light theme
-    - show sync time history - may be we need to keep it in local storage or google sheet column
-    - last sync time - - may be we need to keep it in local storage or google sheet column
-    - manage cateogry - in google sheet new tab
-    - build home page
-    - restructure google sheet in proper relational tabs
+- [ ] **Google Sheets sync center** — a few related ideas for the
+  Settings → Google Sheets backup section:
+  - Let the user export to a **new** sheet on demand, instead of always
+    reusing the one stored spreadsheet id.
+  - Show sync history / last-sync-time (persisted locally, or as a column
+    in the sheet itself).
+  - Manage categories via a dedicated tab in the Google Sheet, not just
+    in-app.
+  - Restructure the sheet into proper relational tabs (transactions /
+    categories / banks) instead of one flat sheet.
+- [ ] **Light/dark theme option** — the design spec calls for light-only,
+  but a user-facing toggle (rather than just following system theme,
+  which isn't wired up either) could be worth adding.
+- [x] ~~Build home page~~ — done, see the Home section above.
+
 ## Project structure
 
 ```
@@ -390,6 +450,8 @@ mobile_app/
       database_service.dart            # local SQLite: transactions + categories
       google_sheets_service.dart       # Google Sign-In + append-only Sheets backup
       analytics_service.dart           # aggregate queries for the Analytics tab
+      background_sync_service.dart     # WorkManager periodic sync + callbackDispatcher
+      notification_service.dart        # notification channel, permission, tap routing
     widgets/
       app_card.dart                    # shared card component
       category_avatar.dart             # colored initial-letter avatar
@@ -435,3 +497,9 @@ mobile_app/
 - **Google Sheets backup**: [`google_sign_in`](https://pub.dev/packages/google_sign_in)
   for OAuth, plain REST calls (via `http`) to the Sheets API v4
 - **Typography**: [`google_fonts`](https://pub.dev/packages/google_fonts) (Inter)
+- **Charts**: [`fl_chart`](https://pub.dev/packages/fl_chart)
+- **Background sync**: [`workmanager`](https://pub.dev/packages/workmanager)
+  (Android `WorkManager` under the hood)
+- **Notifications**: [`flutter_local_notifications`](https://pub.dev/packages/flutter_local_notifications) —
+  requires core library desugaring, enabled in `android/app/build.gradle.kts`
+  (`isCoreLibraryDesugaringEnabled` + the `desugar_jdk_libs` dependency)
