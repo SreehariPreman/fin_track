@@ -20,6 +20,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passcodeController = TextEditingController();
   final _credentialsService = CredentialsService();
@@ -29,6 +30,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _obscurePasscode = true;
   bool _loading = true;
   bool _saving = false;
+  bool _savingName = false;
 
   GoogleSignInAccount? _googleAccount;
   bool _connectingGoogle = false;
@@ -47,10 +49,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _load() async {
     try {
+      final name = await _credentialsService.readName();
       final email = await _credentialsService.readEmail();
       final passcode = await _credentialsService.readAppPasscode();
       if (!mounted) return;
       setState(() {
+        _nameController.text = name ?? '';
         _emailController.text = email ?? '';
         _passcodeController.text = passcode ?? '';
         _loading = false;
@@ -59,6 +63,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       setState(() => _loading = false);
     }
+  }
+
+  Future<void> _saveName() async {
+    setState(() => _savingName = true);
+    await _credentialsService.saveName(_nameController.text);
+    setState(() => _savingName = false);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Saved.')),
+    );
   }
 
   Future<void> _loadGoogleAccount() async {
@@ -153,6 +167,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passcodeController.dispose();
     super.dispose();
@@ -171,6 +186,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text('Profile', style: AppTextStyles.sectionTitle),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Used for the greeting on Home — stored only on this device.',
+                            style: AppTextStyles.bodySecondary,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _nameController,
+                            decoration: const InputDecoration(labelText: 'Your name'),
+                            textCapitalization: TextCapitalization.words,
+                          ),
+                          const SizedBox(height: 16),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: FilledButton(
+                              onPressed: _savingName ? null : _saveName,
+                              child: _savingName
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text('Save'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../models/analytics_filter.dart';
 import '../services/bank_profiles.dart';
 import '../services/database_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../widgets/month_selector.dart';
 import 'analytics/banks_tab.dart';
 import 'analytics/categories_analytics_tab.dart';
 import 'analytics/filters_sheet.dart';
@@ -80,7 +80,7 @@ class _AnalyticsTabState extends State<AnalyticsTab> with SingleTickerProviderSt
       ),
       body: Column(
         children: [
-          if (!_filter.hasDateOverride) _MonthSelector(
+          if (!_filter.hasDateOverride) MonthSelector(
             month: _selectedMonth,
             canGoForward: !_isCurrentMonth,
             onPrevious: () => _shiftMonth(-1),
@@ -116,38 +116,6 @@ class _AnalyticsTabState extends State<AnalyticsTab> with SingleTickerProviderSt
                 TrendsTab(range: range, filter: _filter),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MonthSelector extends StatelessWidget {
-  final DateTime month;
-  final bool canGoForward;
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
-
-  const _MonthSelector({
-    required this.month,
-    required this.canGoForward,
-    required this.onPrevious,
-    required this.onNext,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(onPressed: onPrevious, icon: const Icon(Icons.chevron_left)),
-          Text(DateFormat('MMMM yyyy').format(month), style: AppTextStyles.sectionTitle.copyWith(fontSize: 16)),
-          IconButton(
-            onPressed: canGoForward ? onNext : null,
-            icon: const Icon(Icons.chevron_right),
           ),
         ],
       ),

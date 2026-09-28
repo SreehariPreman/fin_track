@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class CredentialsService {
   static const _emailKey = 'imap_email';
   static const _passcodeKey = 'imap_app_passcode';
+  static const _nameKey = 'display_name';
 
   final _storage = const FlutterSecureStorage();
 
@@ -17,6 +18,13 @@ class CredentialsService {
   Future<String?> readEmail() => _storage.read(key: _emailKey);
 
   Future<String?> readAppPasscode() => _storage.read(key: _passcodeKey);
+
+  /// The name shown in the Home screen greeting — entered once in
+  /// Settings, stored the same way as everything else here (on-device
+  /// only).
+  Future<void> saveName(String name) => _storage.write(key: _nameKey, value: name.trim());
+
+  Future<String?> readName() => _storage.read(key: _nameKey);
 
   Future<bool> hasCredentials() async {
     final email = await readEmail();

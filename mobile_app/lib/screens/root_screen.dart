@@ -18,20 +18,41 @@ class RootScreen extends StatefulWidget {
 class _RootScreenState extends State<RootScreen> {
   int _index = 0;
 
-  static const _tabs = [
-    HomeTab(),
-    TransactionsScreen(),
-    AnalyticsTab(),
-    SettingsScreen(),
-  ];
+  /// Home's "Tap to review" sets this to 'unlabelled' and switches to the
+  /// Transactions tab; Transactions picks it up and clears it back to null.
+  final _pendingTransactionsFilter = ValueNotifier<String?>(null);
+
+  @override
+  void dispose() {
+    _pendingTransactionsFilter.dispose();
+    super.dispose();
+  }
+
+  void _goToTab(int index) => setState(() => _index = index);
+
+  void _reviewUnlabelled() {
+    _pendingTransactionsFilter.value = 'unlabelled';
+    _goToTab(1);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final tabs = [
+      HomeTab(
+        onReviewUnlabelled: _reviewUnlabelled,
+        onOpenSettings: () => _goToTab(3),
+        active: _index == 0,
+      ),
+      TransactionsScreen(pendingFilter: _pendingTransactionsFilter),
+      const AnalyticsTab(),
+      const SettingsScreen(),
+    ];
+
     return Scaffold(
-      body: IndexedStack(index: _index, children: _tabs),
+      body: IndexedStack(index: _index, children: tabs),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        onDestinationSelected: _goToTab,
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), label: 'Transactions'),

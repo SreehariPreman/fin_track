@@ -14,8 +14,12 @@ import anything from the rest of the repo.
 ## How it works
 
 - **Bottom navigation**: Home · Transactions · Analytics · Settings.
-  - **Home** is a placeholder ("Coming soon") — see Backlog below; intended
-    to be a financial overview.
+  - **Home**: greeting (your name, set once in Settings → Profile), month
+    selector, a Total Spent card with month-over-month change and a mini
+    trend sparkline, Income/Remaining (currently a `₹—` placeholder — see
+    Backlog), an unlabelled-transactions nudge that jumps straight to
+    Transactions with that filter applied, top categories with progress
+    bars, and recent activity for the selected month.
   - **Analytics**: month selector + Overview / Categories / Banks / Trends
     sub-tabs, and a Filters sheet — see "Analytics" below.
   - **Transactions**: tap **"Fetch last 10 UPI transactions"** to connect
@@ -26,8 +30,9 @@ import anything from the rest of the repo.
     fetches, app restarts, etc. Filter chips (All / Unlabelled / per-bank)
     and date-grouped ("Today", "Yesterday", ...) cards. Tap a transaction
     to open it.
-  - **Settings**: Gmail connection (email + app passcode), category
-    management, and the Google Sheets backup.
+  - **Settings**: your name (for the Home greeting), Gmail connection
+    (email + app passcode), category management, and the Google Sheets
+    backup.
 - **Transaction detail screen**: amount, merchant, date, a details card
   (bank, UPI ID, reference number, transaction type, status — only the
   fields that were actually present in that email are shown), a link to
@@ -128,6 +133,10 @@ stay consistent automatically:
   (plus the "needs a label" warning avatar variant).
 - `lib/widgets/bank_badge.dart` — the colored bank monogram chip.
 - `lib/widgets/coming_soon.dart` — shared empty-state placeholder.
+- `lib/widgets/transaction_card.dart` — the one transaction list-row
+  design, used by both Transactions and Home's Recent Transactions.
+- `lib/widgets/month_selector.dart` — the "‹ September 2026 ›" control,
+  used by both Home and Analytics.
 
 When building new screens: reuse `AppCard`, pull colors from `AppColors`,
 text styles from `AppTextStyles`, and rely on the themed
@@ -320,16 +329,26 @@ Not built/fixed yet — rough priority order, but open to reordering:
 - [x] ~~Dedicated category management section~~ — done: Settings →
   Categories (add/delete; deleting un-labels rather than deletes affected
   transactions).
-- [ ] **Credit vs debit marking** — both currently-supported banks' alert
-  formats are debit-only, so this hasn't been needed yet. Revisit once a
-  credit-alert format is available to parse.
+- [ ] **Credit vs debit marking (Income tracking)** — HDFC's credit-
+  notification template is now parsed correctly (amount/sender/VPA/
+  reference), but there's still no `direction` (credit/debit) field
+  stored per transaction, so nothing distinguishes money in from money
+  out yet. Home's **Income** and **Remaining** cards are an explicit
+  placeholder (`₹—`) for exactly this reason — showing a fabricated
+  number would be worse than an honest dash. Needs: a `direction` column
+  + migration, each `BankProfile` setting it per template, and Home/
+  Analytics updated to use it (Income = sum of credits, Remaining =
+  Income − Spent).
 - [ ] **Render the original email as HTML** — "View Original Email"
   currently shows the plain-text body (HTML already stripped when the
   mail was fetched). True original-formatting rendering needs capturing
   the raw HTML at fetch time plus an HTML-rendering widget/package —
   bigger change, deferred.
-- [ ] **Build out Home tab** — currently a placeholder; intended purpose
-  is a financial overview.
+- [x] ~~Build out Home tab~~ — done: greeting (name set once in
+  Settings → Profile), month selector, Total Spent card with a mini
+  trend sparkline, Income/Remaining (stubbed, see above), an unlabelled-
+  transactions nudge that jumps to Transactions with that filter
+  pre-applied, top categories, and recent activity.
 - [x] ~~Build out Analytics tab~~ — done: Overview / Categories / Banks /
   Trends sub-tabs with a month selector and a Filters sheet (Date Range /
   Bank / Category / Transaction Type), all reading from the local SQLite
@@ -339,7 +358,15 @@ Not built/fixed yet — rough priority order, but open to reordering:
   battery limits) that checks for new bank alert mail and fires a local
   notification prompting you to categorize it — no backend needed,
   reuses the same IMAP credentials.
-
+- [ ] **Export local data as CSV**.
+- sync center- google sheet options 
+    - user can export to sheet to new sheet if needed or use default one
+    - option to make light theme
+    - show sync time history - may be we need to keep it in local storage or google sheet column
+    - last sync time - - may be we need to keep it in local storage or google sheet column
+    - manage cateogry - in google sheet new tab
+    - build home page
+    - restructure google sheet in proper relational tabs
 ## Project structure
 
 ```
@@ -368,10 +395,12 @@ mobile_app/
       category_avatar.dart             # colored initial-letter avatar
       bank_badge.dart                  # colored bank monogram chip
       coming_soon.dart                 # shared empty-state placeholder
+      transaction_card.dart            # shared transaction list-row
+      month_selector.dart              # shared "‹ September 2026 ›" control
     screens/
       splash_screen.dart               # brand intro
       root_screen.dart                 # bottom-nav shell (Home/Transactions/Analytics/Settings)
-      home_tab.dart                    # placeholder
+      home_tab.dart                    # greeting, month selector, summary, categories, recent
       analytics_tab.dart               # Analytics shell: month selector + sub-tabs + filters
       analytics/
         overview_tab.dart              # summary card, trend chart, KPIs, category donut

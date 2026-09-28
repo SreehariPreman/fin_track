@@ -147,6 +147,25 @@ class DatabaseService {
     return rows.map(_transactionFromRow).toList();
   }
 
+  /// Transactions within [start, end) (exclusive end), newest first —
+  /// used by Home's month-scoped "Recent Transactions".
+  Future<List<UpiTransaction>> getTransactionsInRange(
+    DateTime start,
+    DateTime end, {
+    int? limit,
+  }) async {
+    final db = await _database;
+    final rows = await db.rawQuery('''
+      SELECT $_kTxnColumns
+      FROM transactions t
+      LEFT JOIN category c ON c.id = t.category_id
+      WHERE t.date >= ? AND t.date < ?
+      ORDER BY t.date DESC, t.id DESC
+      ${limit != null ? 'LIMIT $limit' : ''}
+    ''', [start.toIso8601String(), end.toIso8601String()]);
+    return rows.map(_transactionFromRow).toList();
+  }
+
   Future<List<UpiTransaction>> getUnsyncedTransactions() async {
     final db = await _database;
     final rows = await db.rawQuery('''
