@@ -1,5 +1,6 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../models/analytics_filter.dart';
 import '../models/analytics_models.dart';
@@ -10,19 +11,24 @@ import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_theme.dart';
 import '../theme/category_colors.dart';
+import '../utils/money.dart';
 import '../widgets/app_card.dart';
 import '../widgets/category_avatar.dart';
 import '../widgets/coming_soon.dart';
-import '../widgets/month_selector.dart';
+import '../widgets/hero_balance_card.dart';
+import '../widgets/section_header.dart';
+import '../widgets/skeleton.dart';
+import '../widgets/stat_tile.dart';
 
-/// Home: greeting, month selector, a Total Spent summary card with a mini
-/// trend sparkline, Income/Remaining (currently stubbed — see below), an
-/// unlabelled-transactions nudge, and top categories (tapping one jumps to
-/// Analytics > Categories, filtered by that category).
+/// Home: a time-of-day greeting, the dark hero card carrying the month's
+/// total, two supporting stats, an unlabelled-transactions nudge, and the
+/// top spending categories (tapping one opens it in Analytics).
 ///
-/// Income/Remaining are placeholders (₹— ) until the parser tracks
-/// credit vs debit direction (tracked in the README backlog) — showing a
-/// fabricated number here would be more misleading than an honest dash.
+/// The old Income/Remaining tiles showed "₹—" because the parser doesn't
+/// track credit vs debit yet. Two permanently blank tiles in the most
+/// valuable slot on the screen cost more than they explained, so they're
+/// replaced with figures we can actually compute; they come back when
+/// direction parsing lands.
 class HomeTab extends StatefulWidget {
   final VoidCallback onReviewUnlabelled;
 
@@ -62,6 +68,7 @@ class _HomeTabState extends State<HomeTab> {
   String? _name;
   double _total = 0;
   double? _previousTotal;
+  int _count = 0;
   int _unlabelledCount = 0;
   List<CategorySpend> _categories = [];
   List<DailySpend> _series = [];
@@ -95,9 +102,10 @@ class _HomeTabState extends State<HomeTab> {
     });
     try {
       final range = DateRange.forMonth(_selectedMonth);
-      final name = await _credentialsService.readName();
+      final name = await _credentialsService.readDisplayName();
       final total = await _analyticsService.totalSpend(range, AnalyticsFilter.empty);
       final previousTotal = await _analyticsService.previousMonthTotal(_selectedMonth, AnalyticsFilter.empty);
+      final count = await _analyticsService.transactionCount(range, AnalyticsFilter.empty);
       final unlabelledCount = await _db.getUnlabelledCount();
       final categories = await _analyticsService.categoryBreakdown(range, AnalyticsFilter.empty);
       final series = await _analyticsService.dailySeries(range, AnalyticsFilter.empty);
@@ -106,6 +114,7 @@ class _HomeTabState extends State<HomeTab> {
         _name = name;
         _total = total;
         _previousTotal = previousTotal;
+        _count = count;
         _unlabelledCount = unlabelledCount;
         _categories = categories;
         _series = series;
@@ -120,108 +129,127 @@ class _HomeTabState extends State<HomeTab> {
     }
   }
 
+  /// Greeting that tracks the clock — a small thing, but it's the first
+  /// line on the screen and a static "Hi there" is what makes an app feel
+  /// like a template.
+  String get _timeGreeting {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'GOOD MORNING';
+    if (hour < 17) return 'GOOD AFTERNOON';
+    return 'GOOD EVENING';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(body: SafeArea(child: HomeSkeleton()));
     }
     if (_hasError) {
-      return Scaffold(
+      return const Scaffold(
         body: SafeArea(
-          child: ComingSoon(icon: Icons.error_outline, message: 'Could not load your overview.'),
+          child: ComingSoon(icon: PhosphorIconsRegular.warningCircle, message: 'Could not load your overview.'),
         ),
       );
     }
 
-    double? changePct;
-    if (_previousTotal != null && _previousTotal! > 0) {
-      changePct = ((_total - _previousTotal!) / _previousTotal!) * 100;
+    final days = DateRange.forMonth(_selectedMonth).span.inDays.clamp(1, 1000);
+    final greetingName = (_name != null && _name!.isNotEmpty) ? _name! : 'there';
+
+    // Sections fade/rise in sequence rather than all at once. The stagger
+    // is small (60ms) — enough to read as "assembling", not as a delay.
+    var step = 0;
+    Widget stagger(Widget child) {
+      final delay = (60 * step++).ms;
+      return child
+          .animate()
+          .fadeIn(delay: delay, duration: 320.ms, curve: Curves.easeOut)
+          .slideY(begin: 0.08, end: 0, delay: delay, duration: 380.ms, curve: Curves.easeOutCubic);
     }
-    final greetingName = (_name != null && _name!.isNotEmpty) ? _name : 'there';
 
     return Scaffold(
       body: SafeArea(
         child: RefreshIndicator(
           color: AppColors.primary,
+          backgroundColor: AppColors.card,
           onRefresh: _load,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            padding: const EdgeInsets.fromLTRB(
+                AppTheme.gutter, 8, AppTheme.gutter, AppTheme.sectionGap),
             children: [
-              Text('Hi $greetingName 👋', style: AppTextStyles.screenTitle),
-              const SizedBox(height: 4),
-              Text("Here's your financial overview", style: AppTextStyles.bodySecondary),
-              MonthSelector(
+              stagger(_Greeting(greeting: _timeGreeting, name: greetingName)),
+              const SizedBox(height: AppTheme.sectionGap),
+              stagger(HeroBalanceCard(
                 month: _selectedMonth,
+                total: _total,
+                previousTotal: _previousTotal,
+                series: [for (final d in _series) d.total],
                 canGoForward: !_isCurrentMonth,
                 onPrevious: () => _shiftMonth(-1),
                 onNext: () => _shiftMonth(1),
-              ),
-              const SizedBox(height: 8),
-              AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Total Spent', style: AppTextStyles.bodySecondary),
-                    const SizedBox(height: 4),
-                    Text('₹${_total.toStringAsFixed(0)}', style: AppTextStyles.amountLarge.copyWith(fontSize: 30)),
-                    if (changePct != null) ...[
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            changePct >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
-                            size: 14,
-                            color: changePct >= 0 ? AppColors.error : AppColors.success,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            '${changePct.abs().toStringAsFixed(0)}% from last month',
-                            style: AppTextStyles.supporting.copyWith(
-                              color: changePct >= 0 ? AppColors.error : AppColors.success,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    if (_series.length >= 2) ...[
-                      const SizedBox(height: 12),
-                      SizedBox(height: 48, child: _MiniSparkline(series: _series)),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
+              )),
+              const SizedBox(height: AppTheme.gap),
+              stagger(Row(
                 children: [
-                  Expanded(child: _StatCard(label: 'Income', value: '₹—')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _StatCard(label: 'Remaining', value: '₹—')),
+                  Expanded(
+                    child: StatTile(
+                      icon: PhosphorIconsRegular.receipt,
+                      value: '$_count',
+                      label: _count == 1 ? 'Transaction' : 'Transactions',
+                    ),
+                  ),
+                  const SizedBox(width: AppTheme.gap),
+                  Expanded(
+                    child: StatTile(
+                      icon: PhosphorIconsRegular.chartBar,
+                      value: Money.whole(_total / days),
+                      label: 'Avg. per day',
+                    ),
+                  ),
                 ],
-              ),
+              )),
               if (_unlabelledCount > 0) ...[
-                const SizedBox(height: 16),
-                _UnlabelledAlert(count: _unlabelledCount, onTap: widget.onReviewUnlabelled),
+                const SizedBox(height: AppTheme.gap),
+                stagger(_UnlabelledNudge(
+                  count: _unlabelledCount,
+                  onTap: widget.onReviewUnlabelled,
+                )),
               ],
-              const SizedBox(height: 16),
-              AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Spending by Category', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
-                    const SizedBox(height: 16),
-                    if (_categories.isEmpty)
-                      Text('No categorised spending this month.', style: AppTextStyles.bodySecondary)
-                    else
-                      for (final c in _categories.take(5))
-                        _CategoryProgressRow(
-                          category: c,
-                          total: _total,
-                          onTap: () => widget.onCategoryTap(c.categoryId, c.categoryName),
-                        ),
-                  ],
-                ),
-              ),
+              const SizedBox(height: AppTheme.sectionGap),
+              stagger(Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SectionHeader(
+                    title: 'Spending',
+                    actionLabel: _categories.isEmpty ? null : 'Breakdown',
+                    onAction: _categories.isEmpty
+                        ? null
+                        : () => widget.onCategoryTap(null, 'All'),
+                  ),
+                  AppCard(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    child: _categories.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                              child: Text(
+                                'No categorised spending this month.',
+                                style: AppTextStyles.bodySecondary,
+                              ),
+                            ),
+                          )
+                        : Column(
+                            children: [
+                              for (final c in _categories.take(5))
+                                _CategoryRow(
+                                  category: c,
+                                  total: _total,
+                                  onTap: () => widget.onCategoryTap(c.categoryId, c.categoryName),
+                                ),
+                            ],
+                          ),
+                  ),
+                ],
+              )),
             ],
           ),
         ),
@@ -230,161 +258,154 @@ class _HomeTabState extends State<HomeTab> {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  final String label;
-  final String value;
+class _Greeting extends StatelessWidget {
+  final String greeting;
+  final String name;
 
-  const _StatCard({required this.label, required this.value});
+  const _Greeting({required this.greeting, required this.name});
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    // No avatar alongside this: it wasn't interactive, and the profile it
+    // implied already lives behind the Settings tab. Dropping it also
+    // gives a long name the full width.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(greeting, style: AppTextStyles.overline),
+        const SizedBox(height: 6),
+        Text(
+          name,
+          style: AppTextStyles.screenTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+}
+
+class _UnlabelledNudge extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+
+  const _UnlabelledNudge({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return TintedPanel(
+      color: AppColors.warningSoft,
+      onTap: onTap,
+      child: Row(
         children: [
-          Text(value, style: AppTextStyles.amountLarge.copyWith(fontSize: 22)),
-          const SizedBox(height: 2),
-          Text(label, style: AppTextStyles.supporting),
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: const Icon(PhosphorIconsFill.tag, size: 18, color: AppColors.warning),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$count transaction${count == 1 ? '' : 's'} need${count == 1 ? 's' : ''} a label',
+                  style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text('Tap to review', style: AppTextStyles.supporting),
+              ],
+            ),
+          ),
+          const Icon(PhosphorIconsBold.caretRight, size: 13, color: AppColors.warning),
         ],
       ),
     );
   }
 }
 
-class _UnlabelledAlert extends StatelessWidget {
-  final int count;
-  final VoidCallback onTap;
-
-  const _UnlabelledAlert({required this.count, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.warning.withValues(alpha: 0.1),
-      borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppTheme.cardRadius),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              const Icon(Icons.warning_amber_rounded, color: AppColors.warning),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$count transaction${count == 1 ? '' : 's'} need labeling',
-                      style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Tap to review →',
-                      style: AppTextStyles.bodySecondary.copyWith(color: AppColors.warning, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CategoryProgressRow extends StatelessWidget {
+class _CategoryRow extends StatelessWidget {
   final CategorySpend category;
   final double total;
   final VoidCallback onTap;
 
-  const _CategoryProgressRow({required this.category, required this.total, required this.onTap});
+  const _CategoryRow({required this.category, required this.total, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final pct = total > 0 ? (category.total / total).clamp(0, 1).toDouble() : 0.0;
-    final color = category.categoryId != null ? CategoryColors.forId(category.categoryId!) : AppColors.warning;
+    final color = category.categoryId != null
+        ? CategoryColors.forId(category.categoryId!)
+        : AppColors.warning;
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             category.categoryId != null
-                ? CategoryAvatar(categoryId: category.categoryId!, name: category.categoryName, size: 32)
-                : const NeedsLabelAvatar(size: 32),
-            const SizedBox(width: 10),
+                ? CategoryAvatar(categoryId: category.categoryId!, name: category.categoryName, size: 38)
+                : const NeedsLabelAvatar(size: 38),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Expanded(child: Text(category.categoryName, style: AppTextStyles.body)),
-                      Text('₹${category.total.toStringAsFixed(0)}', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
-                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          category.categoryName,
+                          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(Money.whole(category.total), style: AppTextStyles.amount),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: pct,
+                            minHeight: 5,
+                            backgroundColor: AppColors.backgroundAlt,
+                            valueColor: AlwaysStoppedAnimation(color),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
                       SizedBox(
-                        width: 34,
+                        // Wide enough for "100%" — at 32 it wrapped onto
+                        // a second line once a category hit the full bar.
+                        width: 40,
                         child: Text(
                           '${(pct * 100).toStringAsFixed(0)}%',
                           textAlign: TextAlign.right,
+                          maxLines: 1,
+                          softWrap: false,
                           style: AppTextStyles.supporting,
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: pct,
-                      minHeight: 6,
-                      backgroundColor: AppColors.background,
-                      valueColor: AlwaysStoppedAnimation(color),
-                    ),
                   ),
                 ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _MiniSparkline extends StatelessWidget {
-  final List<DailySpend> series;
-
-  const _MiniSparkline({required this.series});
-
-  @override
-  Widget build(BuildContext context) {
-    final spots = [for (var i = 0; i < series.length; i++) FlSpot(i.toDouble(), series[i].total)];
-    final maxY = series.map((s) => s.total).reduce((a, b) => a > b ? a : b);
-
-    return LineChart(
-      LineChartData(
-        minY: 0,
-        maxY: maxY <= 0 ? 1 : maxY * 1.2,
-        gridData: const FlGridData(show: false),
-        borderData: FlBorderData(show: false),
-        titlesData: const FlTitlesData(show: false),
-        lineTouchData: const LineTouchData(enabled: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: AppColors.primary,
-            barWidth: 2,
-            dotData: const FlDotData(show: false),
-          ),
-        ],
       ),
     );
   }

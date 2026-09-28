@@ -54,6 +54,19 @@ class ImapService {
               : _stripHtml(msg.decodeTextHtmlPart() ?? '').trim();
 
           final parsed = bank.parse(subject, body);
+          // A recognised bank sender also sends non-transaction mail (e.g.
+          // HDFC's "Successfully Set-up 4 Digit...", "View: Account
+          // update..." notifications) — a genuine UPI debit/credit alert
+          // always has a parseable amount, so no amount means "not
+          // actually a transaction" and it's skipped rather than saved as
+          // one with a blank amount.
+          if (parsed.amount == null) continue;
+          // Spending only. Anything that isn't positively identified as a
+          // debit — a credit, or an alert this bank's parser couldn't read
+          // confidently — is dropped here rather than stored. This is the
+          // single place email becomes a transaction, so rejecting here is
+          // sufficient: nothing downstream has to re-check direction.
+          if (parsed.direction != TransactionDirection.debit) continue;
           // Some banks' alert bodies (e.g. HDFC) only give a date, no time
           // of day — the parsed value then lands exactly at midnight, which
           // is indistinguishable from "no time info" and misleading in the

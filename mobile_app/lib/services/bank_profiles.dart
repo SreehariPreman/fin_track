@@ -1,5 +1,21 @@
 import 'package:flutter/material.dart';
 
+/// Which way money moved in a bank alert email.
+///
+/// The app tracks spending only, so this exists to let non-debits be
+/// rejected outright rather than silently counted as spending — which is
+/// what happened before, when one regex matched "is debited" and "has been
+/// credited" alike and stored both as plain "UPI".
+enum TransactionDirection {
+  debit,
+  credit,
+
+  /// Direction couldn't be established from the email. Treated as
+  /// not-a-debit, i.e. rejected — a bank alert we can't read confidently
+  /// is not worth counting as spend.
+  unknown,
+}
+
 /// Fields extracted from one bank alert email. Any field can be null if
 /// the email didn't contain it (or didn't match the expected format) —
 /// screens should hide/fallback rather than assume everything is present.
@@ -13,6 +29,10 @@ class ParsedTransactionFields {
   final String? status;
   final String? accountMasked;
 
+  /// Which way the money moved. Only [TransactionDirection.debit] is
+  /// ingested — see ImapService.
+  final TransactionDirection direction;
+
   const ParsedTransactionFields({
     this.amount,
     this.date,
@@ -22,6 +42,7 @@ class ParsedTransactionFields {
     this.transactionType,
     this.status,
     this.accountMasked,
+    this.direction = TransactionDirection.unknown,
   });
 }
 
@@ -105,14 +126,26 @@ final BankProfile hdfcBank = BankProfile(
     // HDFC sends at least two templates: a debit alert ("Rs.X is debited
     // ... towards VPA <id> (<name>) on DD-MM-YY") and a credit notification
     // ("Rs.X has been successfully credited ... Sender: NAME (VPA: id)
-    // ... Date: DD-MM-YY"). Both are handled here.
-    final amount = _parseAmount(
+    // ... Date: DD-MM-YY").
+    //
+    // These are matched separately, so the direction is known rather than
+    // inferred. A single alternation used to match both and report neither,
+    // which is how a credit ended up counted as spending.
+    final debitAmount = _parseAmount(
+      RegExp(r'Rs\.?\s*([\d,]+(?:\.\d{2})?)\s+is\s+debited', caseSensitive: false),
+      body,
+    );
+    final creditAmount = _parseAmount(
       RegExp(
-        r'Rs\.?\s*([\d,]+(?:\.\d{2})?)\s+(?:is\s+debited|has\s+been\s+(?:successfully\s+)?credited)',
+        r'Rs\.?\s*([\d,]+(?:\.\d{2})?)\s+has\s+been\s+(?:successfully\s+)?credited',
         caseSensitive: false,
       ),
       body,
     );
+    final amount = debitAmount ?? creditAmount;
+    final direction = debitAmount != null
+        ? TransactionDirection.debit
+        : (creditAmount != null ? TransactionDirection.credit : TransactionDirection.unknown);
 
     DateTime? date;
     final dateMatch =
@@ -161,6 +194,7 @@ final BankProfile hdfcBank = BankProfile(
       transactionType: 'UPI',
       status: 'Success',
       accountMasked: accountMatch?.group(1),
+      direction: direction,
     );
   },
 );
@@ -182,6 +216,14 @@ final BankProfile unionBank = BankProfile(
   badgeColor: const Color(0xFF7F1D1D),
   parse: (subject, body) {
     final fields = _extractLabeledFields(body, _unionBankLabels);
+
+    // Union Bank's debit alert is titled "DEBIT TRANSACTION ALERT" and
+    // carries a "Debit Account Number" row. Require one of those rather
+    // than assuming: if this bank ever starts sending credit alerts from
+    // the same address, they fall through as unknown and are rejected
+    // instead of quietly landing in the spending total.
+    final looksDebit = RegExp('debit', caseSensitive: false).hasMatch(subject) ||
+        (fields['Debit Account Number']?.isNotEmpty ?? false);
 
     final amountText = fields['Amount'];
     final amount = amountText != null
@@ -210,6 +252,7 @@ final BankProfile unionBank = BankProfile(
       transactionType: fields['Channel'],
       status: fields['Transaction Status'],
       accountMasked: fields['Debit Account Number'],
+      direction: looksDebit ? TransactionDirection.debit : TransactionDirection.unknown,
     );
   },
 );

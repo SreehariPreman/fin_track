@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../models/analytics_filter.dart';
 import '../../models/analytics_models.dart';
 import '../../services/analytics_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
+import '../../theme/app_theme.dart';
 import '../../theme/category_colors.dart';
+import '../../utils/money.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/category_avatar.dart';
 import '../../widgets/coming_soon.dart';
+import '../../widgets/skeleton.dart';
 import 'category_transactions_screen.dart';
 
 /// "Category Spending" — categories sorted by spend, each with count,
@@ -69,12 +73,18 @@ class _CategoriesAnalyticsTabState extends State<CategoriesAnalyticsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const AnalyticsSkeleton();
     if (_hasError) {
-      return const ComingSoon(icon: Icons.error_outline, message: 'Could not load analytics.');
+      return const ComingSoon(
+        icon: PhosphorIconsRegular.warningCircle,
+        message: 'Could not load analytics.',
+      );
     }
     if (_categories.isEmpty) {
-      return const ComingSoon(icon: Icons.pie_chart_outline, message: 'No transactions in this period.');
+      return const ComingSoon(
+        icon: PhosphorIconsRegular.chartPieSlice,
+        message: 'No transactions in this period.',
+      );
     }
 
     final total = _categories.fold<double>(0, (sum, c) => sum + c.total);
@@ -83,23 +93,33 @@ class _CategoriesAnalyticsTabState extends State<CategoriesAnalyticsTab> {
       color: AppColors.primary,
       onRefresh: _load,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        padding: const EdgeInsets.fromLTRB(
+            AppTheme.gutter, 4, AppTheme.gutter, AppTheme.sectionGap),
         children: [
-          for (final c in _categories)
-            _CategoryRow(
-              category: c,
-              total: total,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => CategoryTransactionsScreen(
-                    categoryId: c.categoryId,
-                    categoryName: c.categoryName,
-                    range: widget.range,
-                    filter: widget.filter,
+          AppCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                for (var i = 0; i < _categories.length; i++) ...[
+                  if (i > 0) const Divider(height: 1, indent: 70, endIndent: 16),
+                  _CategoryRow(
+                    category: _categories[i],
+                    total: total,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => CategoryTransactionsScreen(
+                          categoryId: _categories[i].categoryId,
+                          categoryName: _categories[i].categoryName,
+                          range: widget.range,
+                          filter: widget.filter,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                ],
+              ],
             ),
+          ),
         ],
       ),
     );
@@ -116,19 +136,24 @@ class _CategoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pct = total > 0 ? (category.total / total).clamp(0, 1).toDouble() : 0.0;
-    final color = category.categoryId != null ? CategoryColors.forId(category.categoryId!) : AppColors.warning;
+    final color = category.categoryId != null
+        ? CategoryColors.forId(category.categoryId!)
+        : AppColors.warning;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: AppCard(
-        onTap: onTap,
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             category.categoryId != null
-                ? CategoryAvatar(categoryId: category.categoryId!, name: category.categoryName, size: 40)
+                ? CategoryAvatar(
+                    categoryId: category.categoryId!,
+                    name: category.categoryName,
+                    size: 40,
+                  )
                 : const NeedsLabelAvatar(size: 40),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -136,30 +161,56 @@ class _CategoryRow extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(category.categoryName, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
+                        child: Text(
+                          category.categoryName,
+                          style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      Text('₹${category.total.toStringAsFixed(0)}', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      Text(Money.whole(category.total), style: AppTextStyles.amount),
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  Text('${category.count} transaction${category.count == 1 ? '' : 's'}', style: AppTextStyles.supporting),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: pct,
-                      minHeight: 6,
-                      backgroundColor: AppColors.background,
-                      valueColor: AlwaysStoppedAnimation(color),
-                    ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${category.count} transaction${category.count == 1 ? '' : 's'}',
+                    style: AppTextStyles.supporting,
                   ),
-                  const SizedBox(height: 4),
-                  Text('${(pct * 100).toStringAsFixed(0)}%', style: AppTextStyles.supporting),
+                  const SizedBox(height: 9),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: pct,
+                            minHeight: 5,
+                            backgroundColor: AppColors.backgroundAlt,
+                            valueColor: AlwaysStoppedAnimation(color),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        // Wide enough for "100%" — at 32 it wrapped onto
+                        // a second line once a category hit the full bar.
+                        width: 40,
+                        child: Text(
+                          '${(pct * 100).toStringAsFixed(0)}%',
+                          textAlign: TextAlign.right,
+                          maxLines: 1,
+                          softWrap: false,
+                          style: AppTextStyles.supporting,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, color: AppColors.textMuted),
+            const SizedBox(width: 8),
+            const Icon(PhosphorIconsBold.caretRight, size: 12, color: AppColors.textMuted),
           ],
         ),
       ),

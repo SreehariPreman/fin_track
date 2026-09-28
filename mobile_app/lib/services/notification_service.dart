@@ -31,6 +31,14 @@ class NotificationService {
   static const _channelDescription = 'Alerts when a new UPI transaction is fetched from your inbox.';
   static const labelActionId = 'label_now';
 
+  /// Status-bar icon. Android uses only this asset's alpha channel and
+  /// tints the result, so it must be a flat silhouette — pointing it at
+  /// the colour launcher icon (as this did) renders a white blob.
+  static const _smallIcon = '@drawable/ic_stat_spendtrack';
+
+  /// Tint applied to the small icon and the app name in the shade.
+  static const _accent = Color(0xFF16745E);
+
   final plugin = FlutterLocalNotificationsPlugin();
   final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -54,7 +62,7 @@ class NotificationService {
   /// Full app-side setup: channel + tap handling + cold-start detection.
   /// Call once, early in main().
   Future<void> init() async {
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidInit = AndroidInitializationSettings(_smallIcon);
     const initSettings = InitializationSettings(android: androidInit);
     await plugin.initialize(
       settings: initSettings,
@@ -135,6 +143,8 @@ class NotificationService {
       channelDescription: _channelDescription,
       importance: Importance.high,
       priority: Priority.high,
+      icon: _smallIcon,
+      color: _accent,
       styleInformation: BigTextStyleInformation(body),
       actions: const [
         AndroidNotificationAction(labelActionId, 'Label Now', showsUserInterface: true),

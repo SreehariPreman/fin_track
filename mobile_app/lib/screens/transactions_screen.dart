@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../models/transaction.dart';
 import '../services/bank_profiles.dart';
@@ -7,16 +10,23 @@ import '../services/database_service.dart';
 import '../services/imap_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../theme/app_theme.dart';
 import '../utils/transaction_grouping.dart';
+import '../widgets/app_card.dart';
 import '../widgets/coming_soon.dart';
+import '../widgets/skeleton.dart';
 import '../widgets/transaction_card.dart';
 import 'transaction_detail_screen.dart';
 
 const _pageSize = 10;
 
-/// The "Transactions" tab: fetch button, filter chips, and the date-grouped
-/// transaction list. All list data comes from the local database — Fetch
-/// just pulls new mail into it.
+/// The "Transactions" tab: filter chips and the date-grouped transaction
+/// list. All list data comes from the local database.
+///
+/// Fetching is a toolbar action rather than the full-width button it used
+/// to be: background sync plus the tap-to-label notification is the normal
+/// path in, so a manual pull is a fallback and shouldn't be the loudest
+/// thing on the screen.
 class TransactionsScreen extends StatefulWidget {
   /// When Home's "Tap to review" is used, RootScreen sets this to
   /// 'unlabelled' and switches to this tab — this screen picks it up and
@@ -74,6 +84,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 
   void _selectFilter(String filter) {
+    HapticFeedback.selectionClick();
     setState(() {
       _filter = filter;
       _visibleCount = _pageSize;
@@ -113,7 +124,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (email == null || email.isEmpty || passcode == null || passcode.isEmpty) {
       setState(() {
         _fetching = false;
-        _error = 'Set your email and app passcode in Settings first.';
+        _error = 'Connect your Gmail account in Settings first.';
       });
       return;
     }
@@ -126,8 +137,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       );
       await _db.insertNewTransactions(fetched);
       await _loadFromDb();
+      if (!mounted) return;
       setState(() => _fetching = false);
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _fetching = false;
         _error = 'Could not fetch mail: $e';
@@ -162,83 +175,126 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final hasMore = filtered.length > visible.length;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Transactions')),
-      body: RefreshIndicator(
-        color: AppColors.primary,
-        onRefresh: _fetch,
-        child: _loadingList
-            ? const Center(child: CircularProgressIndicator())
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      appBar: AppBar(
+        title: const Text('Transactions'),
+        titleSpacing: AppTheme.gutter,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: AppTheme.gutter - 8),
+            child: _FetchButton(fetching: _fetching, onTap: _fetch),
+          ),
+        ],
+      ),
+      body: _loadingList
+          ? const ListSkeleton()
+          : RefreshIndicator(
+              color: AppColors.primary,
+              backgroundColor: AppColors.card,
+              onRefresh: _fetch,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                    AppTheme.gutter, 4, AppTheme.gutter, AppTheme.sectionGap),
                 children: [
-                  FilledButton.icon(
-                    onPressed: _fetching ? null : _fetch,
-                    icon: _fetching
-                        ? const SizedBox(
-                            height: 16,
-                            width: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.refresh, size: 20),
-                    label: Text(_fetching ? 'Fetching...' : 'Fetch last 10 UPI transactions'),
-                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        _error!,
-                        style: AppTextStyles.bodySecondary.copyWith(color: AppColors.error),
-                      ),
-                    ),
-                  if (_transactions.isNotEmpty) ...[
+                  if (_error != null) ...[
+                    _ErrorPanel(message: _error!),
+                    const SizedBox(height: AppTheme.gap),
+                  ],
+                  if (_transactions.isNotEmpty)
                     _FilterChips(
                       selected: _filter,
                       unlabelledCount: _unlabelledCount,
                       bankCodes: _bankCodes,
                       onSelected: _selectFilter,
                     ),
-                    const SizedBox(height: 8),
-                  ],
                   if (_transactions.isEmpty)
                     const Padding(
-                      padding: EdgeInsets.only(top: 48),
+                      padding: EdgeInsets.only(top: 64),
                       child: ComingSoon(
-                        icon: Icons.inbox_outlined,
-                        message: 'No transactions yet. Tap Fetch to load your inbox.',
+                        icon: PhosphorIconsRegular.trayArrowDown,
+                        message: 'No transactions yet.\nPull down to check your inbox.',
                       ),
                     )
-                  else if (_filtered.isEmpty)
+                  else if (filtered.isEmpty)
                     const Padding(
-                      padding: EdgeInsets.only(top: 48),
+                      padding: EdgeInsets.only(top: 64),
                       child: ComingSoon(
-                        icon: Icons.filter_alt_off_outlined,
-                        message: 'No transactions match this filter.',
+                        icon: PhosphorIconsRegular.funnel,
+                        message: 'Nothing matches this filter.',
                       ),
                     )
                   else
                     for (final entry in grouped.entries) ...[
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-                        child: Text(entry.key, style: AppTextStyles.sectionTitle.copyWith(fontSize: 14)),
+                        padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
+                        child: Text(entry.key, style: AppTextStyles.overline),
                       ),
-                      ...entry.value.map(
-                        (t) => TransactionCard(transaction: t, onTap: () => _openDetail(t)),
+                      TransactionGroupCard(
+                        transactions: entry.value,
+                        onTap: _openDetail,
                       ),
                     ],
                   if (hasMore)
                     Padding(
-                      padding: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.only(top: 20),
                       child: OutlinedButton(
                         onPressed: () => setState(() => _visibleCount += _pageSize),
-                        child: const Text('Load more'),
+                        child: Text('Show ${filtered.length - visible.length} more'),
                       ),
                     ),
                 ],
               ),
-      ),
+            ),
     );
+  }
+}
+
+/// Toolbar fetch action. Swaps to a spinner in place rather than
+/// disappearing, so the button doesn't shift the title while it works.
+class _FetchButton extends StatelessWidget {
+  final bool fetching;
+  final VoidCallback onTap;
+
+  const _FetchButton({required this.fetching, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: fetching ? null : onTap,
+      tooltip: 'Fetch from Gmail',
+      icon: fetching
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2.2),
+            )
+          : const Icon(PhosphorIconsRegular.arrowsClockwise, size: 21),
+    );
+  }
+}
+
+class _ErrorPanel extends StatelessWidget {
+  final String message;
+
+  const _ErrorPanel({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return TintedPanel(
+      color: AppColors.errorSoft,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(PhosphorIconsFill.warningCircle, size: 18, color: AppColors.error),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodySecondary.copyWith(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 200.ms).slideY(begin: -0.1, end: 0, duration: 250.ms);
   }
 }
 
@@ -259,34 +315,88 @@ class _FilterChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final chips = <_FilterChipData>[
       const _FilterChipData(value: 'all', label: 'All'),
-      _FilterChipData(value: 'unlabelled', label: 'Unlabelled ($unlabelledCount)'),
+      if (unlabelledCount > 0)
+        _FilterChipData(value: 'unlabelled', label: 'Unlabelled', count: unlabelledCount),
       for (final code in bankCodes)
         _FilterChipData(value: code, label: bankProfileForCode(code)?.name ?? code),
     ];
 
     return SizedBox(
-      height: 38,
+      height: 40,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
+        // Let chips run to the screen edge instead of stopping at the
+        // page gutter — a row that's clipped mid-chip is the clearest
+        // signal that it scrolls.
+        padding: const EdgeInsets.only(right: AppTheme.gutter),
+        clipBehavior: Clip.none,
         itemCount: chips.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final chip = chips[i];
           final isSelected = chip.value == selected;
-          return ChoiceChip(
-            label: Text(chip.label),
+          return _Chip(
+            data: chip,
             selected: isSelected,
-            onSelected: (_) => onSelected(chip.value),
-            showCheckmark: false,
-            labelStyle: AppTextStyles.bodySecondary.copyWith(
-              color: isSelected ? AppColors.primary : AppColors.textSecondary,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            ),
-            backgroundColor: AppColors.card,
-            selectedColor: AppColors.primary.withValues(alpha: 0.12),
-            side: BorderSide(color: isSelected ? Colors.transparent : AppColors.border),
+            onTap: () => onSelected(chip.value),
           );
         },
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final _FilterChipData data;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _Chip({required this.data, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.primary : AppColors.card,
+      shape: StadiumBorder(
+        side: BorderSide(color: selected ? AppColors.primary : AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Text(
+                data.label,
+                style: AppTextStyles.bodySecondary.copyWith(
+                  color: selected ? Colors.white : AppColors.textSecondary,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              if (data.count != null) ...[
+                const SizedBox(width: 7),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.22)
+                        : AppColors.warning.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${data.count}',
+                    style: AppTextStyles.supporting.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: selected ? Colors.white : AppColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -295,7 +405,7 @@ class _FilterChips extends StatelessWidget {
 class _FilterChipData {
   final String value;
   final String label;
+  final int? count;
 
-  const _FilterChipData({required this.value, required this.label});
+  const _FilterChipData({required this.value, required this.label, this.count});
 }
-
