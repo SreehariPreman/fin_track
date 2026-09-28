@@ -18,18 +18,23 @@ import anything from the rest of the repo.
     selector, a Total Spent card with month-over-month change and a mini
     trend sparkline, Income/Remaining (currently a `₹—` placeholder — see
     Backlog), an unlabelled-transactions nudge that jumps straight to
-    Transactions with that filter applied, top categories with progress
-    bars, and recent activity for the selected month.
+    Transactions with that filter applied, and top categories with
+    progress bars — tapping one jumps to Analytics → Categories, filtered
+    to just that category.
   - **Analytics**: month selector + Overview / Categories / Banks / Trends
-    sub-tabs, and a Filters sheet — see "Analytics" below.
+    sub-tabs, and a Filters sheet — see "Analytics" below. Tapping a row
+    on Categories drills into that category's transaction list (same
+    card design as Transactions).
   - **Transactions**: tap **"Fetch last 10 UPI transactions"** to connect
     live over IMAP and pull your most recent alert emails from known bank
     senders. New ones are saved into a **local SQLite database on the
     device** — that database, not Gmail, is what the list and any future
     dashboards are built from, so your categorized history survives across
     fetches, app restarts, etc. Filter chips (All / Unlabelled / per-bank)
-    and date-grouped ("Today", "Yesterday", ...) cards. Tap a transaction
-    to open it.
+    and date-grouped ("Today", "Yesterday", ...) cards, paginated 10 at a
+    time with a **Load more** button (the local history only grows over
+    time — this avoids rendering the entire thing at once). Tap a
+    transaction to open it.
   - **Settings**: your name (for the Home greeting), Gmail connection
     (email + app passcode), category management, and the Google Sheets
     backup.
@@ -185,7 +190,7 @@ stay consistent automatically:
 - `lib/widgets/bank_badge.dart` — the colored bank monogram chip.
 - `lib/widgets/coming_soon.dart` — shared empty-state placeholder.
 - `lib/widgets/transaction_card.dart` — the one transaction list-row
-  design, used by both Transactions and Home's Recent Transactions.
+  design, used by Transactions and the Analytics category drilldown.
 - `lib/widgets/month_selector.dart` — the "‹ September 2026 ›" control,
   used by both Home and Analytics.
 
@@ -443,6 +448,9 @@ mobile_app/
       category.dart                    # Category: id + name
       analytics_filter.dart            # AnalyticsFilter + DateRange/DateRangePreset
       analytics_models.dart            # CategorySpend/BankSpend/DailySpend/MonthlySpend
+      analytics_category_request.dart  # Home -> Analytics "jump to this category" request
+    utils/
+      transaction_grouping.dart        # shared "Today"/"Yesterday"/date grouping
     services/
       bank_profiles.dart               # per-bank sender address + email parser
       imap_service.dart                # connects to Gmail IMAP, fetches + parses mail
@@ -462,11 +470,12 @@ mobile_app/
     screens/
       splash_screen.dart               # brand intro
       root_screen.dart                 # bottom-nav shell (Home/Transactions/Analytics/Settings)
-      home_tab.dart                    # greeting, month selector, summary, categories, recent
+      home_tab.dart                    # greeting, month selector, summary, categories
       analytics_tab.dart               # Analytics shell: month selector + sub-tabs + filters
       analytics/
         overview_tab.dart              # summary card, trend chart, KPIs, category donut
         categories_analytics_tab.dart  # category spend list, sorted, with progress bars
+        category_transactions_screen.dart # drilldown: one category's transactions
         banks_tab.dart                 # bank donut + monthly comparison + bank-wise trend
         trends_tab.dart                # daily/weekly/monthly line chart + stats
         filters_sheet.dart             # Date Range / Bank / Category / Transaction Type

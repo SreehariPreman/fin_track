@@ -9,6 +9,7 @@ import '../../theme/category_colors.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/category_avatar.dart';
 import '../../widgets/coming_soon.dart';
+import 'category_transactions_screen.dart';
 
 /// "Category Spending" — categories sorted by spend, each with count,
 /// amount, percentage, and a progress bar. Deliberately a readable list,
@@ -84,7 +85,21 @@ class _CategoriesAnalyticsTabState extends State<CategoriesAnalyticsTab> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
-          for (final c in _categories) _CategoryRow(category: c, total: total),
+          for (final c in _categories)
+            _CategoryRow(
+              category: c,
+              total: total,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => CategoryTransactionsScreen(
+                    categoryId: c.categoryId,
+                    categoryName: c.categoryName,
+                    range: widget.range,
+                    filter: widget.filter,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -94,8 +109,9 @@ class _CategoriesAnalyticsTabState extends State<CategoriesAnalyticsTab> {
 class _CategoryRow extends StatelessWidget {
   final CategorySpend category;
   final double total;
+  final VoidCallback onTap;
 
-  const _CategoryRow({required this.category, required this.total});
+  const _CategoryRow({required this.category, required this.total, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +121,7 @@ class _CategoryRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: AppCard(
+        onTap: onTap,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -141,6 +158,8 @@ class _CategoryRow extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, color: AppColors.textMuted),
           ],
         ),
       ),

@@ -11,8 +11,8 @@ import 'bank_badge.dart';
 import 'category_avatar.dart';
 
 /// The one transaction list-row design — used on the Transactions tab and
-/// Home's Recent Transactions. Avatar (category color, or a "needs a
-/// label" warning avatar), name, bank badge + time, amount, category pill.
+/// the Analytics category drilldown. Avatar (category color, or a "needs
+/// a label" warning avatar), name, bank badge + time, amount, category pill.
 class TransactionCard extends StatelessWidget {
   final UpiTransaction transaction;
   final VoidCallback onTap;

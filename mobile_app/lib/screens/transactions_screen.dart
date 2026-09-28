@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../models/transaction.dart';
 import '../services/bank_profiles.dart';
@@ -8,9 +7,12 @@ import '../services/database_service.dart';
 import '../services/imap_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../utils/transaction_grouping.dart';
 import '../widgets/coming_soon.dart';
 import '../widgets/transaction_card.dart';
 import 'transaction_detail_screen.dart';
+
+const _pageSize = 10;
 
 /// The "Transactions" tab: fetch button, filter chips, and the date-grouped
 /// transaction list. All list data comes from the local database — Fetch
@@ -42,6 +44,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   /// 'all', 'unlabelled', or a bank code (e.g. 'HDFC').
   String _filter = 'all';
 
+  /// How many of the (filtered) transactions to actually show — grows by
+  /// [_pageSize] each time "Load more" is tapped, rather than rendering
+  /// the entire local history (which only grows over time) at once.
+  int _visibleCount = _pageSize;
+
   @override
   void initState() {
     super.initState();
@@ -59,8 +66,18 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   void _onPendingFilter() {
     final requested = widget.pendingFilter?.value;
     if (requested == null) return;
-    setState(() => _filter = requested);
+    setState(() {
+      _filter = requested;
+      _visibleCount = _pageSize;
+    });
     widget.pendingFilter!.value = null;
+  }
+
+  void _selectFilter(String filter) {
+    setState(() {
+      _filter = filter;
+      _visibleCount = _pageSize;
+    });
   }
 
   Future<void> _loadFromDb() async {
@@ -137,37 +154,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
   }
 
-  /// Groups (already date-descending) transactions under "Today"/"Yesterday"/
-  /// date headers, preserving order.
-  Map<String, List<UpiTransaction>> get _grouped {
-    final groups = <String, List<UpiTransaction>>{};
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-
-    for (final t in _filtered) {
-      String header;
-      if (t.date == null) {
-        header = 'Date unknown';
-      } else {
-        final d = DateTime(t.date!.year, t.date!.month, t.date!.day);
-        final dateStr = DateFormat('dd MMM yyyy').format(t.date!);
-        if (d == today) {
-          header = 'Today · $dateStr';
-        } else if (d == yesterday) {
-          header = 'Yesterday · $dateStr';
-        } else {
-          header = dateStr;
-        }
-      }
-      groups.putIfAbsent(header, () => []).add(t);
-    }
-    return groups;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final grouped = _grouped;
+    final filtered = _filtered;
+    final visible = filtered.take(_visibleCount).toList();
+    final grouped = groupTransactionsByDate(visible);
+    final hasMore = filtered.length > visible.length;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Transactions')),
@@ -205,7 +197,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       selected: _filter,
                       unlabelledCount: _unlabelledCount,
                       bankCodes: _bankCodes,
-                      onSelected: (f) => setState(() => _filter = f),
+                      onSelected: _selectFilter,
                     ),
                     const SizedBox(height: 8),
                   ],
@@ -235,6 +227,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                         (t) => TransactionCard(transaction: t, onTap: () => _openDetail(t)),
                       ),
                     ],
+                  if (hasMore)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: OutlinedButton(
+                        onPressed: () => setState(() => _visibleCount += _pageSize),
+                        child: const Text('Load more'),
+                      ),
+                    ),
                 ],
               ),
       ),

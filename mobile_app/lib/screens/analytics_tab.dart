@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/analytics_category_request.dart';
 import '../models/analytics_filter.dart';
 import '../services/bank_profiles.dart';
 import '../services/database_service.dart';
@@ -17,13 +18,19 @@ import 'analytics/trends_tab.dart';
 /// selector until reset, and whose Bank/Category/Type selections always
 /// apply on top.
 class AnalyticsTab extends StatefulWidget {
-  const AnalyticsTab({super.key});
+  /// Home's category rows set this to jump straight to the Categories
+  /// sub-tab, filtered by that category.
+  final ValueNotifier<AnalyticsCategoryRequest?>? pendingCategoryRequest;
+
+  const AnalyticsTab({super.key, this.pendingCategoryRequest});
 
   @override
   State<AnalyticsTab> createState() => _AnalyticsTabState();
 }
 
 class _AnalyticsTabState extends State<AnalyticsTab> with SingleTickerProviderStateMixin {
+  static const _categoriesTabIndex = 1;
+
   late final TabController _tabController;
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month, 1);
   AnalyticsFilter _filter = AnalyticsFilter.empty;
@@ -32,12 +39,25 @@ class _AnalyticsTabState extends State<AnalyticsTab> with SingleTickerProviderSt
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    widget.pendingCategoryRequest?.addListener(_onPendingCategoryRequest);
+    _onPendingCategoryRequest();
   }
 
   @override
   void dispose() {
+    widget.pendingCategoryRequest?.removeListener(_onPendingCategoryRequest);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _onPendingCategoryRequest() {
+    final request = widget.pendingCategoryRequest?.value;
+    if (request == null) return;
+    widget.pendingCategoryRequest!.value = null;
+    setState(() {
+      _filter = _filter.copyWith(categoryIds: {request.categoryId});
+    });
+    _tabController.index = _categoriesTabIndex;
   }
 
   bool get _isCurrentMonth {

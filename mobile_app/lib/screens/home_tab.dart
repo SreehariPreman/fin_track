@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 
 import '../models/analytics_filter.dart';
 import '../models/analytics_models.dart';
-import '../models/transaction.dart';
 import '../services/analytics_service.dart';
 import '../services/credentials_service.dart';
 import '../services/database_service.dart';
@@ -15,19 +14,22 @@ import '../widgets/app_card.dart';
 import '../widgets/category_avatar.dart';
 import '../widgets/coming_soon.dart';
 import '../widgets/month_selector.dart';
-import '../widgets/transaction_card.dart';
-import 'transaction_detail_screen.dart';
 
 /// Home: greeting, month selector, a Total Spent summary card with a mini
-/// trend sparkline, Income/Remaining (currently stubbed — see below),
-/// an unlabelled-transactions nudge, top categories, and recent activity.
+/// trend sparkline, Income/Remaining (currently stubbed — see below), an
+/// unlabelled-transactions nudge, and top categories (tapping one jumps to
+/// Analytics > Categories, filtered by that category).
 ///
 /// Income/Remaining are placeholders (₹— ) until the parser tracks
 /// credit vs debit direction (tracked in the README backlog) — showing a
 /// fabricated number here would be more misleading than an honest dash.
 class HomeTab extends StatefulWidget {
   final VoidCallback onReviewUnlabelled;
-  final VoidCallback onOpenSettings;
+
+  /// Called with (categoryId, categoryName) when a category row is
+  /// tapped — null categoryId means the "Unlabelled" bucket, which has no
+  /// analytics filter equivalent, so callers should just switch tabs.
+  final void Function(int? categoryId, String categoryName) onCategoryTap;
 
   /// Whether this tab is the currently-selected one. Home is kept alive in
   /// RootScreen's IndexedStack (so the month selector etc. don't reset
@@ -40,7 +42,7 @@ class HomeTab extends StatefulWidget {
   const HomeTab({
     super.key,
     required this.onReviewUnlabelled,
-    required this.onOpenSettings,
+    required this.onCategoryTap,
     required this.active,
   });
 
@@ -62,7 +64,6 @@ class _HomeTabState extends State<HomeTab> {
   double? _previousTotal;
   int _unlabelledCount = 0;
   List<CategorySpend> _categories = [];
-  List<UpiTransaction> _recent = [];
   List<DailySpend> _series = [];
 
   bool get _isCurrentMonth {
@@ -99,7 +100,6 @@ class _HomeTabState extends State<HomeTab> {
       final previousTotal = await _analyticsService.previousMonthTotal(_selectedMonth, AnalyticsFilter.empty);
       final unlabelledCount = await _db.getUnlabelledCount();
       final categories = await _analyticsService.categoryBreakdown(range, AnalyticsFilter.empty);
-      final recent = await _db.getTransactionsInRange(range.start, range.end, limit: 5);
       final series = await _analyticsService.dailySeries(range, AnalyticsFilter.empty);
       if (!mounted) return;
       setState(() {
@@ -108,7 +108,6 @@ class _HomeTabState extends State<HomeTab> {
         _previousTotal = previousTotal;
         _unlabelledCount = unlabelledCount;
         _categories = categories;
-        _recent = recent;
         _series = series;
         _loading = false;
       });
@@ -119,13 +118,6 @@ class _HomeTabState extends State<HomeTab> {
         _hasError = true;
       });
     }
-  }
-
-  Future<void> _openDetail(UpiTransaction t) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => TransactionDetailScreen(transaction: t)),
-    );
-    _load();
   }
 
   @override
@@ -155,26 +147,9 @@ class _HomeTabState extends State<HomeTab> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Hi $greetingName 👋', style: AppTextStyles.screenTitle),
-                        const SizedBox(height: 4),
-                        Text("Here's your financial overview", style: AppTextStyles.bodySecondary),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: widget.onOpenSettings,
-                    icon: const Icon(Icons.account_circle_outlined, size: 32, color: AppColors.primary),
-                    tooltip: 'Settings',
-                  ),
-                ],
-              ),
+              Text('Hi $greetingName 👋', style: AppTextStyles.screenTitle),
+              const SizedBox(height: 4),
+              Text("Here's your financial overview", style: AppTextStyles.bodySecondary),
               MonthSelector(
                 month: _selectedMonth,
                 canGoForward: !_isCurrentMonth,
@@ -238,17 +213,15 @@ class _HomeTabState extends State<HomeTab> {
                     if (_categories.isEmpty)
                       Text('No categorised spending this month.', style: AppTextStyles.bodySecondary)
                     else
-                      for (final c in _categories.take(5)) _CategoryProgressRow(category: c, total: _total),
+                      for (final c in _categories.take(5))
+                        _CategoryProgressRow(
+                          category: c,
+                          total: _total,
+                          onTap: () => widget.onCategoryTap(c.categoryId, c.categoryName),
+                        ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              Text('Recent Transactions', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
-              const SizedBox(height: 12),
-              if (_recent.isEmpty)
-                Text('No transactions this month.', style: AppTextStyles.bodySecondary)
-              else
-                for (final t in _recent) TransactionCard(transaction: t, onTap: () => _openDetail(t)),
             ],
           ),
         ),
@@ -325,56 +298,61 @@ class _UnlabelledAlert extends StatelessWidget {
 class _CategoryProgressRow extends StatelessWidget {
   final CategorySpend category;
   final double total;
+  final VoidCallback onTap;
 
-  const _CategoryProgressRow({required this.category, required this.total});
+  const _CategoryProgressRow({required this.category, required this.total, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final pct = total > 0 ? (category.total / total).clamp(0, 1).toDouble() : 0.0;
     final color = category.categoryId != null ? CategoryColors.forId(category.categoryId!) : AppColors.warning;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          category.categoryId != null
-              ? CategoryAvatar(categoryId: category.categoryId!, name: category.categoryName, size: 32)
-              : const NeedsLabelAvatar(size: 32),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: Text(category.categoryName, style: AppTextStyles.body)),
-                    Text('₹${category.total.toStringAsFixed(0)}', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
-                    const SizedBox(width: 6),
-                    SizedBox(
-                      width: 34,
-                      child: Text(
-                        '${(pct * 100).toStringAsFixed(0)}%',
-                        textAlign: TextAlign.right,
-                        style: AppTextStyles.supporting,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            category.categoryId != null
+                ? CategoryAvatar(categoryId: category.categoryId!, name: category.categoryName, size: 32)
+                : const NeedsLabelAvatar(size: 32),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: Text(category.categoryName, style: AppTextStyles.body)),
+                      Text('₹${category.total.toStringAsFixed(0)}', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 6),
+                      SizedBox(
+                        width: 34,
+                        child: Text(
+                          '${(pct * 100).toStringAsFixed(0)}%',
+                          textAlign: TextAlign.right,
+                          style: AppTextStyles.supporting,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: pct,
-                    minHeight: 6,
-                    backgroundColor: AppColors.background,
-                    valueColor: AlwaysStoppedAnimation(color),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: pct,
+                      minHeight: 6,
+                      backgroundColor: AppColors.background,
+                      valueColor: AlwaysStoppedAnimation(color),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -147,22 +147,49 @@ class DatabaseService {
     return rows.map(_transactionFromRow).toList();
   }
 
-  /// Transactions within [start, end) (exclusive end), newest first —
-  /// used by Home's month-scoped "Recent Transactions".
-  Future<List<UpiTransaction>> getTransactionsInRange(
-    DateTime start,
-    DateTime end, {
-    int? limit,
+  /// Transactions within [start, end) (exclusive end) for one category
+  /// (null [categoryId] means the "Unlabelled" bucket), newest first —
+  /// used by the Analytics Categories drilldown. Optionally further
+  /// scoped by bank/transaction-type, to stay consistent with whatever
+  /// Filters sheet selection is active when drilling in.
+  Future<List<UpiTransaction>> getTransactionsForCategory({
+    required DateTime start,
+    required DateTime end,
+    required int? categoryId,
+    Set<String> bankCodes = const {},
+    Set<String> transactionTypes = const {},
   }) async {
+    final clauses = <String>['t.date >= ?', 't.date < ?'];
+    final args = <Object?>[start.toIso8601String(), end.toIso8601String()];
+
+    if (categoryId == null) {
+      clauses.add('t.category_id IS NULL');
+    } else {
+      clauses.add('t.category_id = ?');
+      args.add(categoryId);
+    }
+    if (bankCodes.isNotEmpty) {
+      clauses.add('t.bank_code IN (${List.filled(bankCodes.length, '?').join(',')})');
+      args.addAll(bankCodes);
+    }
+    if (transactionTypes.isNotEmpty) {
+      final wantsUpi = transactionTypes.contains('UPI');
+      final wantsOther = transactionTypes.contains('Other');
+      if (wantsUpi && !wantsOther) {
+        clauses.add("UPPER(COALESCE(t.transaction_type, '')) = 'UPI'");
+      } else if (wantsOther && !wantsUpi) {
+        clauses.add("UPPER(COALESCE(t.transaction_type, '')) != 'UPI'");
+      }
+    }
+
     final db = await _database;
     final rows = await db.rawQuery('''
       SELECT $_kTxnColumns
       FROM transactions t
       LEFT JOIN category c ON c.id = t.category_id
-      WHERE t.date >= ? AND t.date < ?
+      WHERE ${clauses.join(' AND ')}
       ORDER BY t.date DESC, t.id DESC
-      ${limit != null ? 'LIMIT $limit' : ''}
-    ''', [start.toIso8601String(), end.toIso8601String()]);
+    ''', args);
     return rows.map(_transactionFromRow).toList();
   }
 

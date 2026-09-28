@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/analytics_category_request.dart';
 import '../services/notification_service.dart';
 import 'analytics_tab.dart';
 import 'home_tab.dart';
@@ -23,6 +24,10 @@ class _RootScreenState extends State<RootScreen> {
   /// Transactions tab; Transactions picks it up and clears it back to null.
   final _pendingTransactionsFilter = ValueNotifier<String?>(null);
 
+  /// Home's category rows set this and switch to the Analytics tab;
+  /// AnalyticsTab picks it up, jumps to Categories, and applies the filter.
+  final _pendingAnalyticsCategory = ValueNotifier<AnalyticsCategoryRequest?>(null);
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +44,7 @@ class _RootScreenState extends State<RootScreen> {
   @override
   void dispose() {
     _pendingTransactionsFilter.dispose();
+    _pendingAnalyticsCategory.dispose();
     super.dispose();
   }
 
@@ -49,16 +55,27 @@ class _RootScreenState extends State<RootScreen> {
     _goToTab(1);
   }
 
+  void _viewCategoryInAnalytics(int? categoryId, String categoryName) {
+    // Unlabelled (null categoryId) has no Analytics filter equivalent —
+    // just switch tabs so they land on the Categories breakdown, which
+    // still shows an Unlabelled row.
+    if (categoryId != null) {
+      _pendingAnalyticsCategory.value =
+          AnalyticsCategoryRequest(categoryId: categoryId, categoryName: categoryName);
+    }
+    _goToTab(2);
+  }
+
   @override
   Widget build(BuildContext context) {
     final tabs = [
       HomeTab(
         onReviewUnlabelled: _reviewUnlabelled,
-        onOpenSettings: () => _goToTab(3),
+        onCategoryTap: _viewCategoryInAnalytics,
         active: _index == 0,
       ),
       TransactionsScreen(pendingFilter: _pendingTransactionsFilter),
-      const AnalyticsTab(),
+      AnalyticsTab(pendingCategoryRequest: _pendingAnalyticsCategory),
       const SettingsScreen(),
     ];
 
