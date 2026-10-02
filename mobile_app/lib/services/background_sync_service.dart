@@ -4,6 +4,7 @@ import 'credentials_service.dart';
 import 'database_service.dart';
 import 'imap_service.dart';
 import 'notification_service.dart';
+import 'sync_preferences.dart';
 
 /// Periodic background sync (Android `WorkManager`, via the `workmanager`
 /// plugin): the only way to check mail without the app open. This is
@@ -26,15 +27,31 @@ class BackgroundSyncService {
     await Workmanager().initialize(callbackDispatcher);
   }
 
-  /// Schedules (or leaves alone, if already scheduled) the periodic sync.
-  /// Call after Gmail credentials are saved in Settings, and again at
-  /// startup if credentials already exist.
+  /// Schedules (or leaves alone, if already scheduled) the periodic sync
+  /// at whatever interval Sync Settings holds. Call after Gmail
+  /// credentials are saved, and again at startup if credentials already
+  /// exist. Does nothing if background sync has been switched off.
   static Future<void> register() async {
+    final prefs = SyncPreferences();
+    if (!await prefs.isEnabled()) {
+      await cancel();
+      return;
+    }
+    await _schedule(await prefs.intervalMinutes(), ExistingPeriodicWorkPolicy.keep);
+  }
+
+  /// Re-schedules at [intervalMinutes], replacing any existing schedule —
+  /// used when the interval is changed in Sync Settings, where `keep`
+  /// would silently leave the old period in place.
+  static Future<void> reschedule(int intervalMinutes) =>
+      _schedule(intervalMinutes, ExistingPeriodicWorkPolicy.update);
+
+  static Future<void> _schedule(int intervalMinutes, ExistingPeriodicWorkPolicy policy) async {
     await Workmanager().registerPeriodicTask(
       _uniqueTaskName,
       _taskName,
-      frequency: const Duration(minutes: 15),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      frequency: Duration(minutes: intervalMinutes),
+      existingWorkPolicy: policy,
       constraints: Constraints(networkType: NetworkType.connected),
     );
   }
@@ -60,6 +77,9 @@ void callbackDispatcher() {
 }
 
 Future<void> _syncAndNotify() async {
+  final syncPrefs = SyncPreferences();
+  if (!await syncPrefs.isEnabled()) return;
+
   final credentialsService = CredentialsService();
   final email = await credentialsService.readEmail();
   final passcode = await credentialsService.readAppPasscode();
@@ -70,7 +90,7 @@ Future<void> _syncAndNotify() async {
   final fetched = await ImapService().fetchLastUpiTransactions(
     email: email,
     appPasscode: passcode,
-    maxCount: 10,
+    maxCount: await syncPrefs.fetchCount(),
   );
   if (fetched.isEmpty) return;
 
@@ -82,6 +102,7 @@ Future<void> _syncAndNotify() async {
   // manual Fetch) — but only the ones absent beforehand are "new".
   await db.insertNewTransactions(fetched);
   if (newOnes.isEmpty) return;
+  if (!await syncPrefs.notificationsEnabled()) return;
 
   final notificationService = NotificationService.instance;
   await notificationService.ensureChannel();

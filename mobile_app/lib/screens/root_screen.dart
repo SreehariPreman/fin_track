@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../models/analytics_category_request.dart';
 import '../services/notification_service.dart';
@@ -48,7 +50,10 @@ class _RootScreenState extends State<RootScreen> {
     super.dispose();
   }
 
-  void _goToTab(int index) => setState(() => _index = index);
+  void _goToTab(int index) {
+    HapticFeedback.selectionClick();
+    setState(() => _index = index);
+  }
 
   void _reviewUnlabelled() {
     _pendingTransactionsFilter.value = 'unlabelled';
@@ -84,11 +89,30 @@ class _RootScreenState extends State<RootScreen> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: _goToTab,
+        // Selection is carried by the outline -> fill icon swap (the
+        // theme clears NavigationBar's pill indicator), which is why each
+        // destination needs both weights.
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), label: 'Transactions'),
-          NavigationDestination(icon: Icon(Icons.bar_chart_outlined), label: 'Analytics'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), label: 'Settings'),
+          NavigationDestination(
+            icon: Icon(PhosphorIconsRegular.houseSimple),
+            selectedIcon: Icon(PhosphorIconsFill.houseSimple),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(PhosphorIconsRegular.receipt),
+            selectedIcon: Icon(PhosphorIconsFill.receipt),
+            label: 'Transactions',
+          ),
+          NavigationDestination(
+            icon: Icon(PhosphorIconsRegular.chartPieSlice),
+            selectedIcon: Icon(PhosphorIconsFill.chartPieSlice),
+            label: 'Analytics',
+          ),
+          NavigationDestination(
+            icon: Icon(PhosphorIconsRegular.gearSix),
+            selectedIcon: Icon(PhosphorIconsFill.gearSix),
+            label: 'Settings',
+          ),
         ],
       ),
     );

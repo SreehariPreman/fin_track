@@ -20,9 +20,13 @@ void main() {
       // Must not have swallowed the trailing safety notice.
       expect(f.merchantName!.length, lessThan(60));
     });
+
+    test('is identified as a debit', () {
+      expect(hdfcBank.parse('subject', body).direction, TransactionDirection.debit);
+    });
   });
 
-  group('HDFC Bank — credit notification (real-world sample that regressed)', () {
+  group('HDFC Bank — credit notification (must never be counted as spend)', () {
     // Reconstructed from an actual fetched + HTML-stripped body, including
     // a leaked <style> block (the original bug) to make sure the fix holds.
     final body =
@@ -40,6 +44,34 @@ void main() {
       expect(f.upiId, 'sreeharipreman853-1@okhdfcbank');
       expect(f.referenceNo, '130133987883');
       expect(f.date, DateTime(2026, 9, 23));
+    });
+
+    // The app tracks spending only. This body previously matched the same
+    // alternation as a debit and was stored as one, silently inflating
+    // every total; ImapService now drops anything that isn't a debit.
+    test('is identified as a credit, not a debit', () {
+      expect(hdfcBank.parse('subject', body).direction, TransactionDirection.credit);
+    });
+  });
+
+  group('HDFC Bank — non-transaction notification', () {
+    // The same sender address also sends alerts that aren't UPI
+    // transactions at all (PIN setup, account update notices, etc.) —
+    // these must not parse an amount, since imap_service.dart uses a null
+    // amount as the signal to skip saving something as a "transaction".
+    final body =
+        'Dear Customer, Your 4 Digit PIN for HDFC Bank Debit Card ending 8159 has '
+        'been successfully set up. If you did not perform this action, please '
+        'contact us immediately at 1800 258 6161.';
+
+    test('does not extract an amount from a non-transaction alert', () {
+      final f = hdfcBank.parse('Successfully Set-up 4 Digit PIN', body);
+      expect(f.amount, isNull);
+    });
+
+    test('direction is unknown, so it would be rejected on direction too', () {
+      final f = hdfcBank.parse('Successfully Set-up 4 Digit PIN', body);
+      expect(f.direction, TransactionDirection.unknown);
     });
   });
 
@@ -69,6 +101,34 @@ void main() {
       expect(f.merchantName, isNot(contains('Amount')));
       expect(f.transactionType, isNot(contains('Transaction ID')));
       expect(f.status, isNot(contains('Debit Account')));
+    });
+
+    test('is identified as a debit via its Debit Account Number row', () {
+      expect(unionBank.parse('subject', body).direction, TransactionDirection.debit);
+    });
+
+    test('is identified as a debit via its subject line', () {
+      expect(
+        unionBank.parse('DEBIT TRANSACTION ALERT', body).direction,
+        TransactionDirection.debit,
+      );
+    });
+  });
+
+  group('Union Bank — alert with no debit markers', () {
+    // Same sender, same labelled-field shape, but nothing saying it is a
+    // debit. It must fall through as unknown rather than being assumed to
+    // be spending.
+    final body =
+        'Dear SREEHARI K NAIR, Greetings! Transaction Details 1. Payee Name : Someone '
+        '2. Amount : Rs. 500.00 3. Channel : UPI 4. Transaction ID/RRN : 999888777666 '
+        '5. Transaction Status : Success 6. Transaction Date and Time : 24-09-2026 '
+        '21:31:42';
+
+    test('is not treated as a debit', () {
+      final f = unionBank.parse('TRANSACTION ALERT', body);
+      expect(f.amount, 500.00);
+      expect(f.direction, TransactionDirection.unknown);
     });
   });
 }

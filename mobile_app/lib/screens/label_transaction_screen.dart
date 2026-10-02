@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../models/category.dart';
 import '../models/transaction.dart';
 import '../services/database_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../theme/app_theme.dart';
 import '../theme/category_colors.dart';
+import '../utils/money.dart';
+import '../utils/text_format.dart';
 import '../widgets/app_card.dart';
 import '../widgets/category_avatar.dart';
+import '../widgets/section_header.dart';
 
 /// Fast, dedicated labeling screen — a 3-column category grid rather than a
 /// dropdown, so picking (or creating) a category is a single tap.
@@ -102,57 +108,66 @@ class _LabelTransactionScreenState extends State<LabelTransactionScreen> {
   @override
   Widget build(BuildContext context) {
     final t = widget.transaction;
-    final amountStr = t.amount != null ? '₹${t.amount!.toStringAsFixed(2)}' : '—';
     final timeStr = t.date != null ? DateFormat('h:mm a').format(t.date!) : '';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Label transaction')),
+      appBar: AppBar(
+        title: const Text('Add a label'),
+        titleTextStyle: AppTextStyles.sectionTitle.copyWith(fontSize: 17),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    padding: const EdgeInsets.fromLTRB(
+                        AppTheme.gutter, 8, AppTheme.gutter, AppTheme.gap),
                     children: [
                       AppCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(amountStr, style: AppTextStyles.amountLarge),
-                            const SizedBox(height: 4),
-                            Text(t.displayName, style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 2),
+                            Text(Money.precise(t.amount), style: AppTextStyles.amountLarge),
+                            const SizedBox(height: 6),
                             Text(
-                              [if (t.bankName != null) t.bankName!, timeStr].where((s) => s.isNotEmpty).join(' · '),
+                              TextFormat.merchant(t.displayName),
+                              style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              [if (t.bankName != null) t.bankName!, timeStr]
+                                  .where((s) => s.isNotEmpty)
+                                  .join(' · '),
                               style: AppTextStyles.supporting,
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 20),
-                      Text('Select a category', style: AppTextStyles.sectionTitle),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppTheme.sectionGap),
+                      const SectionHeader(title: 'Select a category'),
                       GridView.count(
                         crossAxisCount: 3,
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        mainAxisSpacing: 10,
-                        crossAxisSpacing: 10,
-                        childAspectRatio: 0.92,
+                        mainAxisSpacing: 12,
+                        crossAxisSpacing: 12,
+                        childAspectRatio: 0.95,
                         children: [
                           for (final category in _categories)
                             _CategoryTile(
                               category: category,
                               selected: category.id == _selectedCategoryId,
-                              onTap: () => setState(() => _selectedCategoryId = category.id),
+                              onTap: () {
+                                HapticFeedback.selectionClick();
+                                setState(() => _selectedCategoryId = category.id);
+                              },
                             ),
                           _AddCategoryTile(onTap: _addCategory),
                         ],
                       ),
-                      const SizedBox(height: 20),
-                      Text('Notes', style: AppTextStyles.sectionTitle),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppTheme.sectionGap),
+                      const SectionHeader(title: 'Notes'),
                       TextField(
                         controller: _notesController,
                         maxLines: 3,
@@ -162,7 +177,8 @@ class _LabelTransactionScreenState extends State<LabelTransactionScreen> {
                   ),
                 ),
                 SafeArea(
-                  minimum: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  minimum: const EdgeInsets.fromLTRB(
+                      AppTheme.gutter, 0, AppTheme.gutter, AppTheme.gap),
                   child: FilledButton(
                     onPressed: (_selectedCategoryId == null || _saving) ? null : _save,
                     style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
@@ -193,12 +209,18 @@ class _CategoryTile extends StatelessWidget {
     final color = CategoryColors.forId(category.id);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
         decoration: BoxDecoration(
-          color: selected ? AppColors.primary.withValues(alpha: 0.1) : color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: selected ? AppColors.primary : Colors.transparent, width: 1.5),
+          // The tile keeps its own category tint when selected; only the
+          // ring and the tick change. Swapping the fill to jade made the
+          // selected tile stop looking like the category you just picked.
+          color: color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.border,
+            width: selected ? 2 : 1,
+          ),
         ),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
         child: Stack(
@@ -225,7 +247,11 @@ class _CategoryTile extends StatelessWidget {
               const Positioned(
                 top: 0,
                 right: 0,
-                child: Icon(Icons.check_circle, color: AppColors.primary, size: 18),
+                child: Icon(
+                  PhosphorIconsFill.checkCircle,
+                  color: AppColors.primary,
+                  size: 18,
+                ),
               ),
           ],
         ),
@@ -243,12 +269,12 @@ class _AddCategoryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
         decoration: BoxDecoration(
-          color: AppColors.background,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.border, style: BorderStyle.solid),
+          color: AppColors.backgroundAlt,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.border),
         ),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
         child: Column(
@@ -257,8 +283,15 @@ class _AddCategoryTile extends StatelessWidget {
             Container(
               width: 40,
               height: 40,
-              decoration: const BoxDecoration(color: AppColors.card, shape: BoxShape.circle),
-              child: const Icon(Icons.add, color: AppColors.textMuted),
+              decoration: BoxDecoration(
+                color: AppColors.card,
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: const Icon(
+                PhosphorIconsBold.plus,
+                size: 18,
+                color: AppColors.textMuted,
+              ),
             ),
             const SizedBox(height: 8),
             Text(

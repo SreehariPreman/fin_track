@@ -3,15 +3,26 @@ import 'package:flutter/material.dart';
 import 'app_colors.dart';
 import 'app_text_styles.dart';
 
-/// Central ThemeData. Light theme only — no dark variant is defined, per
-/// the design spec. Individual screens should prefer these theme-derived
-/// styles (Theme.of(context)..., component themes below) over hardcoding
-/// colors/radii, so the look stays consistent as new screens are added.
+/// Central ThemeData. Light theme only, by design.
+///
+/// Screens should pull styling from here rather than hardcoding colors and
+/// radii, so a palette change stays a one-file change.
 class AppTheme {
   AppTheme._();
 
-  static const double cardRadius = 18;
+  /// Cards are noticeably rounder than Material's default. Paired with the
+  /// generous [gutter], this is most of what reads as "modern" before a
+  /// single color is chosen.
+  static const double cardRadius = 22;
   static const double controlRadius = 14;
+
+  /// Horizontal page padding. One value everywhere — inconsistent gutters
+  /// are the most common reason a layout feels unfinished.
+  static const double gutter = 20;
+
+  /// Vertical rhythm between stacked sections.
+  static const double gap = 14;
+  static const double sectionGap = 24;
 
   static ThemeData get light {
     final colorScheme = ColorScheme.fromSeed(
@@ -28,9 +39,12 @@ class AppTheme {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: AppColors.background,
       canvasColor: AppColors.background,
+      splashFactory: InkSparkle.splashFactory,
       textTheme: TextTheme(
+        displaySmall: AppTextStyles.display,
         headlineSmall: AppTextStyles.screenTitle,
         titleMedium: AppTextStyles.sectionTitle,
+        labelSmall: AppTextStyles.overline,
         bodyLarge: AppTextStyles.body,
         bodyMedium: AppTextStyles.bodySecondary,
         bodySmall: AppTextStyles.supporting,
@@ -39,6 +53,7 @@ class AppTheme {
         backgroundColor: AppColors.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: false,
         foregroundColor: AppColors.textPrimary,
         titleTextStyle: AppTextStyles.screenTitle,
@@ -53,12 +68,12 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.4),
+          disabledBackgroundColor: AppColors.backgroundAlt,
+          disabledForegroundColor: AppColors.textMuted,
+          elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(controlRadius)),
-          textStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600, color: Colors.white),
-        ).copyWith(
-          overlayColor: WidgetStateProperty.all(AppColors.primaryDark.withValues(alpha: 0.1)),
+          textStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -68,31 +83,32 @@ class AppTheme {
           side: const BorderSide(color: AppColors.border),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(controlRadius)),
-          textStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+          textStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.primary,
-          textStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600),
+          textStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
       iconButtonTheme: IconButtonThemeData(
-        style: IconButton.styleFrom(foregroundColor: AppColors.primary),
+        style: IconButton.styleFrom(foregroundColor: AppColors.textPrimary),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: AppColors.background,
-        selectedColor: AppColors.primary.withValues(alpha: 0.12),
-        disabledColor: AppColors.background,
+        backgroundColor: AppColors.card,
+        selectedColor: AppColors.primary,
+        disabledColor: AppColors.backgroundAlt,
         labelStyle: AppTextStyles.bodySecondary.copyWith(color: AppColors.textPrimary),
         side: const BorderSide(color: AppColors.border),
         shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        showCheckmark: false,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.card,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(controlRadius),
           borderSide: const BorderSide(color: AppColors.border),
@@ -115,24 +131,57 @@ class AppTheme {
       dividerTheme: const DividerThemeData(color: AppColors.border, thickness: 1, space: 1),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: AppColors.card,
-        indicatorColor: AppColors.primary.withValues(alpha: 0.12),
+        // The pill indicator fights the icon's own filled/outlined state
+        // change, so the icon swap carries selection on its own.
+        indicatorColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        height: 68,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return AppTextStyles.supporting.copyWith(
+            fontSize: 11.5,
             color: selected ? AppColors.primary : AppColors.textMuted,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           );
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
-          return IconThemeData(color: selected ? AppColors.primary : AppColors.textMuted);
+          return IconThemeData(
+            size: 24,
+            color: selected ? AppColors.primary : AppColors.textMuted,
+          );
         }),
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(color: AppColors.primary),
+      tabBarTheme: TabBarThemeData(
+        labelColor: AppColors.textPrimary,
+        unselectedLabelColor: AppColors.textMuted,
+        labelStyle: AppTextStyles.body.copyWith(fontWeight: FontWeight.w700, fontSize: 14),
+        unselectedLabelStyle: AppTextStyles.body.copyWith(fontSize: 14),
+        indicatorSize: TabBarIndicatorSize.tab,
+        dividerColor: Colors.transparent,
+        overlayColor: WidgetStateProperty.all(Colors.transparent),
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: AppColors.primary,
+        linearTrackColor: AppColors.backgroundAlt,
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: AppColors.background,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.card,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        titleTextStyle: AppTextStyles.sectionTitle,
+      ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.textPrimary,
+        backgroundColor: AppColors.ink,
         contentTextStyle: AppTextStyles.body.copyWith(color: Colors.white),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(controlRadius)),
         behavior: SnackBarBehavior.floating,

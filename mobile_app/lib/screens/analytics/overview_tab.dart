@@ -1,14 +1,20 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../models/analytics_filter.dart';
 import '../../models/analytics_models.dart';
 import '../../services/analytics_service.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
+import '../../theme/app_theme.dart';
 import '../../theme/category_colors.dart';
+import '../../utils/money.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/charts.dart';
 import '../../widgets/coming_soon.dart';
+import '../../widgets/section_header.dart';
+import '../../widgets/skeleton.dart';
+import '../../widgets/stat_tile.dart';
 
 class OverviewTab extends StatefulWidget {
   final DateRange range;
@@ -87,14 +93,27 @@ class _OverviewTabState extends State<OverviewTab> {
     }
   }
 
+  /// Unlabelled is amber everywhere else in the app (the needs-label
+  /// avatar, Home's category rows), so it's amber here too. It was a
+  /// heavy neutral grey, which made the single largest slice read as
+  /// dead space rather than as the backlog it is.
+  Color _colorFor(CategorySpend c) =>
+      c.categoryId != null ? CategoryColors.forId(c.categoryId!) : AppColors.warning;
+
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const AnalyticsSkeleton();
     if (_hasError) {
-      return const ComingSoon(icon: Icons.error_outline, message: 'Could not load analytics.');
+      return const ComingSoon(
+        icon: PhosphorIconsRegular.warningCircle,
+        message: 'Could not load analytics.',
+      );
     }
     if (_count == 0) {
-      return const ComingSoon(icon: Icons.query_stats_outlined, message: 'No transactions in this period.');
+      return const ComingSoon(
+        icon: PhosphorIconsRegular.chartLineUp,
+        message: 'No transactions in this period.',
+      );
     }
 
     final days = widget.range.span.inDays.clamp(1, 1000);
@@ -106,74 +125,95 @@ class _OverviewTabState extends State<OverviewTab> {
 
     return RefreshIndicator(
       color: AppColors.primary,
+      backgroundColor: AppColors.card,
       onRefresh: _load,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        padding: const EdgeInsets.fromLTRB(
+            AppTheme.gutter, 4, AppTheme.gutter, AppTheme.sectionGap),
         children: [
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Total Spending', style: AppTextStyles.bodySecondary),
-                const SizedBox(height: 4),
-                Text('₹${_total.toStringAsFixed(0)}', style: AppTextStyles.amountLarge.copyWith(fontSize: 30)),
+                Text('TOTAL SPENDING', style: AppTextStyles.overline),
+                const SizedBox(height: 10),
+                Text(Money.whole(_total), style: AppTextStyles.display.copyWith(fontSize: 36)),
                 if (changePct != null) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Icon(
-                        changePct >= 0 ? Icons.arrow_upward : Icons.arrow_downward,
-                        size: 14,
-                        color: changePct >= 0 ? AppColors.error : AppColors.success,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        '${changePct.abs().toStringAsFixed(0)}% from last month',
-                        style: AppTextStyles.supporting.copyWith(
-                          color: changePct >= 0 ? AppColors.error : AppColors.success,
-                        ),
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: 12),
+                  _DeltaPill(changePct: changePct),
                 ],
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Spending trend', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
-                const SizedBox(height: 16),
-                SizedBox(height: 140, child: _TrendChart(series: _series)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTheme.gap),
           Row(
             children: [
-              Expanded(child: _KpiCard(value: '$_count', label: 'Transactions')),
-              const SizedBox(width: 12),
-              Expanded(child: _KpiCard(value: '₹${avgPerDay.toStringAsFixed(0)}', label: 'Avg. per day')),
+              Expanded(
+                child: StatTile(
+                  icon: PhosphorIconsRegular.receipt,
+                  value: '$_count',
+                  label: _count == 1 ? 'Transaction' : 'Transactions',
+                ),
+              ),
+              const SizedBox(width: AppTheme.gap),
+              Expanded(
+                child: StatTile(
+                  icon: PhosphorIconsRegular.chartBar,
+                  value: Money.whole(avgPerDay),
+                  label: 'Avg. per day',
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTheme.sectionGap),
+
+          const SectionHeader(title: 'Spending trend'),
           AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Category distribution', style: AppTextStyles.sectionTitle.copyWith(fontSize: 15)),
-                const SizedBox(height: 16),
-                if (_categories.isEmpty)
-                  Text('No categorised spending yet.', style: AppTextStyles.bodySecondary)
-                else ...[
-                  SizedBox(height: 160, child: _CategoryDonut(categories: _categories, total: _total)),
-                  const SizedBox(height: 16),
-                  for (final c in _categories.take(5)) _CategorySummaryRow(category: c, total: _total),
-                ],
-              ],
-            ),
+            padding: const EdgeInsets.fromLTRB(10, 20, 20, 10),
+            child: SizedBox(height: 180, child: SpendLineChart(series: _series)),
+          ),
+          const SizedBox(height: AppTheme.sectionGap),
+
+          const SectionHeader(title: 'Where it went'),
+          AppCard(
+            child: _categories.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Text(
+                        'No categorised spending yet.',
+                        style: AppTextStyles.bodySecondary,
+                      ),
+                    ),
+                  )
+                : Column(
+                    children: [
+                      SizedBox(
+                        height: 190,
+                        child: DonutChart(
+                          total: _total,
+                          slices: [
+                            for (final c in _categories)
+                              DonutSlice(
+                                label: c.categoryName,
+                                value: c.total,
+                                color: _colorFor(c),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                      for (final c in _categories.take(6))
+                        ChartLegendRow(
+                          color: _colorFor(c),
+                          label: c.categoryName,
+                          value: c.total,
+                          total: _total,
+                        ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -181,113 +221,34 @@ class _OverviewTabState extends State<OverviewTab> {
   }
 }
 
-class _KpiCard extends StatelessWidget {
-  final String value;
-  final String label;
+class _DeltaPill extends StatelessWidget {
+  final double changePct;
 
-  const _KpiCard({required this.value, required this.label});
+  const _DeltaPill({required this.changePct});
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(value, style: AppTextStyles.amountLarge.copyWith(fontSize: 22)),
-          const SizedBox(height: 2),
-          Text(label, style: AppTextStyles.supporting),
-        ],
+    // Spending more is the bad direction, so "up" is warm, not green.
+    final up = changePct >= 0;
+    final color = up ? AppColors.warning : AppColors.success;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(9, 5, 12, 5),
+      decoration: BoxDecoration(
+        color: up ? AppColors.warningSoft : AppColors.successSoft,
+        borderRadius: BorderRadius.circular(999),
       ),
-    );
-  }
-}
-
-class _TrendChart extends StatelessWidget {
-  final List<DailySpend> series;
-
-  const _TrendChart({required this.series});
-
-  @override
-  Widget build(BuildContext context) {
-    if (series.length < 2) {
-      return Center(child: Text('Not enough data yet', style: AppTextStyles.supporting));
-    }
-    final spots = [
-      for (var i = 0; i < series.length; i++) FlSpot(i.toDouble(), series[i].total),
-    ];
-    final maxY = series.map((s) => s.total).reduce((a, b) => a > b ? a : b);
-
-    return LineChart(
-      LineChartData(
-        minY: 0,
-        maxY: maxY <= 0 ? 1 : maxY * 1.2,
-        gridData: const FlGridData(show: false),
-        borderData: FlBorderData(show: false),
-        titlesData: const FlTitlesData(show: false),
-        lineTouchData: const LineTouchData(enabled: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: AppColors.primary,
-            barWidth: 2.5,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(show: true, color: AppColors.primary.withValues(alpha: 0.08)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CategoryDonut extends StatelessWidget {
-  final List<CategorySpend> categories;
-  final double total;
-
-  const _CategoryDonut({required this.categories, required this.total});
-
-  @override
-  Widget build(BuildContext context) {
-    return PieChart(
-      PieChartData(
-        sectionsSpace: 2,
-        centerSpaceRadius: 44,
-        sections: [
-          for (final c in categories)
-            PieChartSectionData(
-              value: c.total,
-              color: c.categoryId != null ? CategoryColors.forId(c.categoryId!) : AppColors.textMuted,
-              radius: 26,
-              showTitle: false,
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CategorySummaryRow extends StatelessWidget {
-  final CategorySpend category;
-  final double total;
-
-  const _CategorySummaryRow({required this.category, required this.total});
-
-  @override
-  Widget build(BuildContext context) {
-    final pct = total > 0 ? (category.total / total * 100) : 0;
-    final color = category.categoryId != null ? CategoryColors.forId(category.categoryId!) : AppColors.textMuted;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          const SizedBox(width: 8),
-          Expanded(child: Text(category.categoryName, style: AppTextStyles.body)),
-          Text('₹${category.total.toStringAsFixed(0)}', style: AppTextStyles.body.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 40,
-            child: Text('${pct.toStringAsFixed(0)}%', textAlign: TextAlign.right, style: AppTextStyles.supporting),
+          Icon(
+            up ? PhosphorIconsBold.arrowUpRight : PhosphorIconsBold.arrowDownRight,
+            size: 13,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            '${changePct.abs().toStringAsFixed(0)}% vs last month',
+            style: AppTextStyles.supporting.copyWith(color: color, fontWeight: FontWeight.w700),
           ),
         ],
       ),

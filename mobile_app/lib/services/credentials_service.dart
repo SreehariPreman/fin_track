@@ -6,7 +6,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class CredentialsService {
   static const _emailKey = 'imap_email';
   static const _passcodeKey = 'imap_app_passcode';
-  static const _nameKey = 'display_name';
 
   final _storage = const FlutterSecureStorage();
 
@@ -19,12 +18,27 @@ class CredentialsService {
 
   Future<String?> readAppPasscode() => _storage.read(key: _passcodeKey);
 
-  /// The name shown in the Home screen greeting — entered once in
-  /// Settings, stored the same way as everything else here (on-device
-  /// only).
-  Future<void> saveName(String name) => _storage.write(key: _nameKey, value: name.trim());
+  /// The name shown in the Home screen greeting, derived from the local
+  /// part of the connected address (`priya.s@gmail.com` -> "Priya S")
+  /// rather than asked for separately — one less thing to fill in, and it
+  /// can't go stale against the account actually in use. Null until an
+  /// address has been saved.
+  Future<String?> readDisplayName() async => displayNameFromEmail(await readEmail());
 
-  Future<String?> readName() => _storage.read(key: _nameKey);
+  /// The derivation itself, pure so it can be tested without touching the
+  /// keystore. Returns null for anything that yields no letters at all
+  /// (e.g. `12345@gmail.com`) — better a generic greeting than "12345".
+  static String? displayNameFromEmail(String? email) {
+    if (email == null || email.trim().isEmpty) return null;
+    final local = email.trim().split('@').first;
+    final words = local
+        .split(RegExp(r'[._\-+]+'))
+        .map((word) => word.replaceAll(RegExp(r'[0-9]'), ''))
+        .where((word) => word.isNotEmpty)
+        .map((word) => word[0].toUpperCase() + word.substring(1))
+        .toList();
+    return words.isEmpty ? null : words.join(' ');
+  }
 
   Future<bool> hasCredentials() async {
     final email = await readEmail();

@@ -14,8 +14,12 @@ void main() {
     expect(find.text('SpendTrack'), findsOneWidget);
     expect(find.text('Track. Understand. Take Control.'), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 1000));
-    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pump(const Duration(milliseconds: 600));
+    // Home's sections fade in on a stagger; each of those schedules a
+    // zero-duration timer as it mounts. One more pump past the longest
+    // delay lets them all fire, so the test ends with no pending work.
+    await tester.pump(const Duration(milliseconds: 1200));
 
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('Transactions'), findsWidgets);

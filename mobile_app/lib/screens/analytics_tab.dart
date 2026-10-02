@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../models/analytics_category_request.dart';
 import '../models/analytics_filter.dart';
@@ -6,6 +7,7 @@ import '../services/bank_profiles.dart';
 import '../services/database_service.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
+import '../theme/app_theme.dart';
 import '../widgets/month_selector.dart';
 import 'analytics/banks_tab.dart';
 import 'analytics/categories_analytics_tab.dart';
@@ -86,45 +88,54 @@ class _AnalyticsTabState extends State<AnalyticsTab> with SingleTickerProviderSt
     return Scaffold(
       appBar: AppBar(
         title: const Text('Analytics'),
+        titleSpacing: AppTheme.gutter,
         actions: [
-          IconButton(
-            icon: Badge(
-              isLabelVisible: _filter.activeCount > 0,
-              label: Text('${_filter.activeCount}'),
-              child: const Icon(Icons.tune_outlined),
+          Padding(
+            padding: const EdgeInsets.only(right: AppTheme.gutter - 8),
+            child: IconButton(
+              icon: Badge(
+                isLabelVisible: _filter.activeCount > 0,
+                label: Text('${_filter.activeCount}'),
+                backgroundColor: AppColors.primary,
+                child: Icon(
+                  _filter.activeCount > 0
+                      ? PhosphorIconsFill.funnel
+                      : PhosphorIconsRegular.funnel,
+                  size: 21,
+                  color: _filter.activeCount > 0
+                      ? AppColors.primary
+                      : AppColors.textPrimary,
+                ),
+              ),
+              onPressed: _openFilters,
+              tooltip: 'Filters',
             ),
-            onPressed: _openFilters,
-            tooltip: 'Filters',
           ),
         ],
       ),
       body: Column(
         children: [
-          if (!_filter.hasDateOverride) MonthSelector(
-            month: _selectedMonth,
-            canGoForward: !_isCurrentMonth,
-            onPrevious: () => _shiftMonth(-1),
-            onNext: () => _shiftMonth(1),
-          ),
-          if (_filter.activeCount > 0) _ActiveFilterChips(
-            filter: _filter,
-            onChanged: (f) => setState(() => _filter = f),
-          ),
-          TabBar(
-            controller: _tabController,
-            isScrollable: false,
-            labelColor: AppColors.primary,
-            unselectedLabelColor: AppColors.textMuted,
-            labelPadding: const EdgeInsets.symmetric(horizontal: 4),
-            labelStyle: AppTextStyles.supporting.copyWith(fontWeight: FontWeight.w700, color: AppColors.primary),
-            unselectedLabelStyle: AppTextStyles.supporting.copyWith(fontWeight: FontWeight.w500),
-            indicatorColor: AppColors.primary,
-            tabs: const [
-              Tab(text: 'Overview'),
-              Tab(text: 'Categories'),
-              Tab(text: 'Banks'),
-              Tab(text: 'Trends'),
-            ],
+          if (!_filter.hasDateOverride)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: MonthSelector(
+                month: _selectedMonth,
+                canGoForward: !_isCurrentMonth,
+                onPrevious: () => _shiftMonth(-1),
+                onNext: () => _shiftMonth(1),
+              ),
+            ),
+          if (_filter.activeCount > 0)
+            _ActiveFilterChips(
+              filter: _filter,
+              onChanged: (f) => setState(() => _filter = f),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(AppTheme.gutter, 0, AppTheme.gutter, 8),
+            child: SegmentedTabBar(
+              controller: _tabController,
+              tabs: const ['Overview', 'Categories', 'Banks', 'Trends'],
+            ),
           ),
           Expanded(
             child: TabBarView(
@@ -200,10 +211,15 @@ class _ActiveFilterChips extends StatelessWidget {
     return InputChip(
       label: Text(label),
       onDeleted: onRemove,
+      deleteIcon: const Icon(PhosphorIconsBold.x, size: 12),
       deleteIconColor: AppColors.primary,
-      backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+      backgroundColor: AppColors.primarySoft,
       side: BorderSide.none,
-      labelStyle: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12.5),
+      visualDensity: VisualDensity.compact,
+      labelStyle: AppTextStyles.supporting.copyWith(
+        color: AppColors.primary,
+        fontWeight: FontWeight.w700,
+      ),
     );
   }
 }
