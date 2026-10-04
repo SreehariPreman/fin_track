@@ -63,3 +63,23 @@ The parser looks for UPI-related wording (e.g. “UPI”, “debited”, “paym
 - **Backend**: Flask, SQLite
 - **Mail**: Python `imaplib` + `email`
 - **UI**: Simple server-rendered HTML/CSS
+
+## Known issues / TODO
+
+### Mobile app
+
+- **Transactions are keyed by IMAP sequence number, not UID.**
+  `ImapService` stores `msg.sequenceId` as `email_id`, and that is the key
+  the database de-duplicates on (`ON CONFLICT(email_id) DO UPDATE`).
+  Sequence numbers are positional and shift whenever a message is deleted
+  from the mailbox, so after deleting bank mail a re-fetch can map an
+  already-used `email_id` onto a different message. The upsert then
+  overwrites one transaction's row with another's data while keeping the
+  original's category label — silent mislabelling, plus duplicates of
+  rows thought to be already stored.
+
+  A mass re-fetch is when this would bite, which makes changing the
+  tracking start date the most likely trigger.
+
+  Fix: key on `msg.uid` (stable and permanent; `enough_mail` already
+  exposes it alongside `sequenceId`) and migrate existing rows.
