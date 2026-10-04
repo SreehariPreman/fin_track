@@ -137,11 +137,21 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       // did nothing here — and this is the path people reach for exactly
       // when the background sync has missed something and they want it to
       // look further back.
+      //
+      // The first fetch after a tracking start date is set is different:
+      // it collects everything back to that date and ignores the limit,
+      // which is the catch-up the user asked for by choosing the date.
+      final startDate = await _syncPrefs.trackingStartDate();
+      final isBackfill =
+          startDate != null && !await _syncPrefs.initialBackfillDone();
+
       final fetched = await _imapService.fetchLastUpiTransactions(
         email: email,
         appPasscode: passcode,
-        maxCount: await _syncPrefs.fetchCount(),
+        maxCount: isBackfill ? null : await _syncPrefs.fetchCount(),
+        since: startDate,
       );
+      if (isBackfill) await _syncPrefs.setInitialBackfillDone(true);
       await _db.insertNewTransactions(fetched);
       await _loadFromDb();
       if (!mounted) return;

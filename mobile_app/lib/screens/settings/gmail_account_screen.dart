@@ -4,9 +4,11 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import '../../services/background_sync_service.dart';
 import '../../services/credentials_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/sync_preferences.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/tracking_start_date.dart';
 
 /// The Gmail mailbox transactions are read from: address, app password,
 /// and the connection state.
@@ -73,6 +75,16 @@ class _GmailAccountScreenState extends State<GmailAccountScreen> {
       _saving = false;
       _connected = true;
     });
+
+    // Ask where to start before anything is fetched. Without this the
+    // first check just grabs the most recent handful of mails, which for
+    // a mailbox with history in it is an arbitrary slice of the past
+    // rather than the starting point the user would have chosen.
+    if (await SyncPreferences().trackingStartDate() == null) {
+      if (!mounted) return;
+      await pickTrackingStartDate(context);
+    }
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved.')));
   }
 

@@ -12,12 +12,22 @@ class ImapService {
   static const String host = 'imap.gmail.com';
   static const int port = 993;
 
-  /// Scans the inbox newest-first in batches until [maxCount] recognised
-  /// bank-alert emails are found (or the inbox is exhausted).
+  /// Collects recognised bank-alert emails, newest first.
+  ///
+  /// [since] puts a hard floor on how far back to look. When it's set the
+  /// server does the filtering — an IMAP SEARCH on both the date and the
+  /// known bank senders — instead of this walking the mailbox and opening
+  /// every message to find out. On an account with years of mail that is
+  /// the difference between one cheap query and downloading the inbox.
+  ///
+  /// [maxCount] caps how many are returned; null means "everything in
+  /// range", which is what the one-off catch-up from the tracking start
+  /// date uses.
   Future<List<UpiTransaction>> fetchLastUpiTransactions({
     required String email,
     required String appPasscode,
-    int maxCount = 10,
+    int? maxCount = 10,
+    DateTime? since,
   }) async {
     final client = ImapClient(isLogEnabled: false);
     final results = <UpiTransaction>[];
@@ -30,10 +40,14 @@ class ImapService {
       final totalMessages = mailbox.messagesExists;
       if (totalMessages == 0) return results;
 
+      if (since != null) {
+        return _fetchSince(client, since, maxCount);
+      }
+
       const batchSize = 30;
       var end = totalMessages;
 
-      while (end >= 1 && results.length < maxCount) {
+      while (end >= 1 && (maxCount == null || results.length < maxCount)) {
         final start = (end - batchSize + 1).clamp(1, end);
         final sequence = MessageSequence.fromRange(start, end);
         final fetchResult = await client.fetchMessages(sequence, 'BODY.PEEK[]');
@@ -41,64 +55,10 @@ class ImapService {
         // Newest first within the batch.
         final messages = fetchResult.messages.reversed;
         for (final msg in messages) {
-          if (results.length >= maxCount) break;
+          if (maxCount != null && results.length >= maxCount) break;
 
-          final fromEmail = (msg.from?.isNotEmpty ?? false) ? msg.from!.first.email : '';
-          final bank = bankProfileForSender(fromEmail);
-          if (bank == null) continue;
-
-          final subject = msg.decodeSubject() ?? '';
-          final plainPart = msg.decodeTextPlainPart();
-          final body = (plainPart != null && plainPart.trim().isNotEmpty)
-              ? plainPart.trim()
-              : _stripHtml(msg.decodeTextHtmlPart() ?? '').trim();
-
-          final parsed = bank.parse(subject, body);
-          // A recognised bank sender also sends non-transaction mail (e.g.
-          // HDFC's "Successfully Set-up 4 Digit...", "View: Account
-          // update..." notifications) — a genuine UPI debit/credit alert
-          // always has a parseable amount, so no amount means "not
-          // actually a transaction" and it's skipped rather than saved as
-          // one with a blank amount.
-          if (parsed.amount == null) continue;
-          // Spending only. Anything that isn't positively identified as a
-          // debit — a credit, or an alert this bank's parser couldn't read
-          // confidently — is dropped here rather than stored. This is the
-          // single place email becomes a transaction, so rejecting here is
-          // sufficient: nothing downstream has to re-check direction.
-          if (parsed.direction != TransactionDirection.debit) continue;
-          // Some banks' alert bodies (e.g. HDFC) only give a date, no time
-          // of day — the parsed value then lands exactly at midnight, which
-          // is indistinguishable from "no time info" and misleading in the
-          // UI. Prefer the mail's own timestamp (which has a real time)
-          // whenever the parsed date looks like a bare date.
-          final looksTimeless = parsed.date != null &&
-              parsed.date!.hour == 0 &&
-              parsed.date!.minute == 0 &&
-              parsed.date!.second == 0;
-          final date = (parsed.date != null && !looksTimeless)
-              ? parsed.date
-              : (msg.decodeDate() ?? parsed.date);
-          final merchant = parsed.merchantName;
-
-          results.add(UpiTransaction(
-            emailId: (msg.sequenceId ?? 0).toString(),
-            subject: subject.length > 120 ? subject.substring(0, 120) : subject,
-            amount: parsed.amount,
-            date: date,
-            // Never fall back to dumping the raw body here — if merchant
-            // extraction failed, the subject line is still a much safer
-            // "name" to show than an arbitrary chunk of the email.
-            snippet: merchant ?? (subject.isNotEmpty ? subject : '${bank.name} transaction'),
-            body: body,
-            bankCode: bank.code,
-            bankName: bank.name,
-            merchantName: merchant,
-            upiId: parsed.upiId,
-            referenceNo: parsed.referenceNo,
-            transactionType: parsed.transactionType,
-            status: parsed.status,
-          ));
+          final transaction = _toTransaction(msg);
+          if (transaction != null) results.add(transaction);
         }
 
         end = start - 1;
@@ -114,6 +74,127 @@ class ImapService {
     }
   }
 
+
+  /// Parses one fetched message into a transaction, or null if it isn't
+  /// one. Shared by both fetch paths so they can't drift apart on what
+  /// counts as a transaction.
+  UpiTransaction? _toTransaction(MimeMessage msg) {
+    final fromEmail = (msg.from?.isNotEmpty ?? false) ? msg.from!.first.email : '';
+    final bank = bankProfileForSender(fromEmail);
+    if (bank == null) return null;
+
+    final subject = msg.decodeSubject() ?? '';
+    final plainPart = msg.decodeTextPlainPart();
+    final body = (plainPart != null && plainPart.trim().isNotEmpty)
+        ? plainPart.trim()
+        : _stripHtml(msg.decodeTextHtmlPart() ?? '').trim();
+
+    final parsed = bank.parse(subject, body);
+    // A recognised bank sender also sends non-transaction mail (e.g.
+    // HDFC's "Successfully Set-up 4 Digit...", "View: Account
+    // update..." notifications) — a genuine UPI debit/credit alert
+    // always has a parseable amount, so no amount means "not
+    // actually a transaction" and it's skipped rather than saved as
+    // one with a blank amount.
+    if (parsed.amount == null) return null;
+    // Spending only. Anything that isn't positively identified as a
+    // debit — a credit, or an alert this bank's parser couldn't read
+    // confidently — is dropped here rather than stored. This is the
+    // single place email becomes a transaction, so rejecting here is
+    // sufficient: nothing downstream has to re-check direction.
+    if (parsed.direction != TransactionDirection.debit) return null;
+    // Some banks' alert bodies (e.g. HDFC) only give a date, no time
+    // of day — the parsed value then lands exactly at midnight, which
+    // is indistinguishable from "no time info" and misleading in the
+    // UI. Prefer the mail's own timestamp (which has a real time)
+    // whenever the parsed date looks like a bare date.
+    final looksTimeless = parsed.date != null &&
+        parsed.date!.hour == 0 &&
+        parsed.date!.minute == 0 &&
+        parsed.date!.second == 0;
+    final date = (parsed.date != null && !looksTimeless)
+        ? parsed.date
+        : (msg.decodeDate() ?? parsed.date);
+    final merchant = parsed.merchantName;
+
+    return UpiTransaction(
+      emailId: (msg.sequenceId ?? 0).toString(),
+      subject: subject.length > 120 ? subject.substring(0, 120) : subject,
+      amount: parsed.amount,
+      date: date,
+      // Never fall back to dumping the raw body here — if merchant
+      // extraction failed, the subject line is still a much safer
+      // "name" to show than an arbitrary chunk of the email.
+      snippet: merchant ?? (subject.isNotEmpty ? subject : '${bank.name} transaction'),
+      body: body,
+      bankCode: bank.code,
+      bankName: bank.name,
+      merchantName: merchant,
+      upiId: parsed.upiId,
+      referenceNo: parsed.referenceNo,
+      transactionType: parsed.transactionType,
+      status: parsed.status,
+    );
+  }
+
+  /// Server-side fetch: ask IMAP for exactly the messages that are from a
+  /// known bank sender and no older than [since], then download only
+  /// those.
+  Future<List<UpiTransaction>> _fetchSince(
+    ImapClient client,
+    DateTime since,
+    int? maxCount,
+  ) async {
+    final search = await client.searchMessages(
+      searchCriteria: _sinceFromBanksCriteria(since),
+    );
+    var ids = search.matchingSequence?.toList() ?? const <int>[];
+    if (ids.isEmpty) return [];
+
+    // SEARCH returns ascending sequence ids; newest are at the end.
+    ids.sort();
+    if (maxCount != null && ids.length > maxCount) {
+      ids = ids.sublist(ids.length - maxCount);
+    }
+
+    final results = <UpiTransaction>[];
+    // Chunked so a wide date range doesn't become one enormous fetch.
+    const chunkSize = 30;
+    for (var i = ids.length; i > 0; i -= chunkSize) {
+      final chunk = ids.sublist((i - chunkSize).clamp(0, ids.length), i);
+      if (chunk.isEmpty) continue;
+      final sequence = MessageSequence.fromIds(chunk);
+      final fetched = await client.fetchMessages(sequence, 'BODY.PEEK[]');
+      for (final msg in fetched.messages.reversed) {
+        final transaction = _toTransaction(msg);
+        if (transaction != null) results.add(transaction);
+      }
+    }
+    return results;
+  }
+
+  /// `SINCE <date> (OR FROM a FROM b ...)`.
+  ///
+  /// SINCE compares the server's internal date at day granularity and is
+  /// inclusive, so the start date the user picked is itself covered. The
+  /// sender clause is folded because IMAP's OR is strictly binary.
+  static String _sinceFromBanksCriteria(DateTime since) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final date = '${since.day.toString().padLeft(2, '0')}'
+        '-${months[since.month - 1]}-${since.year}';
+
+    final senders =
+        bankProfiles.map((b) => 'FROM "${b.senderEmail}"').toList();
+    var clause = senders.first;
+    for (final sender in senders.skip(1)) {
+      clause = 'OR $clause $sender';
+    }
+    return 'SINCE $date ($clause)';
+  }
+
   /// Strips HTML to plain text while preserving line breaks — collapsing
   /// everything (including block-level tags) to spaces turns a structured
   /// "Label : value" email into one giant line, which breaks per-field
@@ -121,6 +202,12 @@ class ImapService {
   /// whole email instead of just that field).
   @visibleForTesting
   static String stripHtmlForTesting(String html) => _stripHtml(html);
+
+  /// IMAP search syntax is unforgiving and can't be exercised without a
+  /// live server, so the criteria string is pinned by tests.
+  @visibleForTesting
+  static String searchCriteriaForTesting(DateTime since) =>
+      _sinceFromBanksCriteria(since);
 
   static String _stripHtml(String html) {
     var text = html

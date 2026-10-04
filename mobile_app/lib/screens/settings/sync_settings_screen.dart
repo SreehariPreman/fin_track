@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../services/background_sync_service.dart';
@@ -7,6 +8,7 @@ import '../../services/sync_preferences.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import '../../widgets/settings_group.dart';
+import '../../widgets/tracking_start_date.dart';
 
 /// How often the app checks Gmail in the background, and what it does when
 /// it finds something.
@@ -25,6 +27,8 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
   bool _notify = true;
   int _intervalMinutes = SyncPreferences.defaultIntervalMinutes;
   int _fetchCount = SyncPreferences.defaultFetchCount;
+  DateTime? _startDate;
+  bool _backfillDone = false;
 
   @override
   void initState() {
@@ -37,12 +41,16 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
     final notify = await _prefs.notificationsEnabled();
     final interval = await _prefs.intervalMinutes();
     final fetchCount = await _prefs.fetchCount();
+    final startDate = await _prefs.trackingStartDate();
+    final backfillDone = await _prefs.initialBackfillDone();
     if (!mounted) return;
     setState(() {
       _enabled = enabled;
       _notify = notify;
       _intervalMinutes = interval;
       _fetchCount = fetchCount;
+      _startDate = startDate;
+      _backfillDone = backfillDone;
       _loading = false;
     });
   }
@@ -80,6 +88,17 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
     setState(() => _intervalMinutes = choice);
     await _prefs.setIntervalMinutes(choice);
     if (_enabled) await BackgroundSyncService.reschedule(choice);
+  }
+
+  Future<void> _pickTrackingStartDate() async {
+    final picked = await pickTrackingStartDate(context, current: _startDate);
+    if (picked == null || !mounted) return;
+    // Changing the date clears the backfill flag (see SyncPreferences), so
+    // reflect that here rather than showing a stale "caught up".
+    setState(() {
+      _startDate = picked;
+      _backfillDone = false;
+    });
   }
 
   Future<void> _pickFetchCount() async {
@@ -149,6 +168,31 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
                       supporting: '$_fetchCount most recent',
                       onTap: _enabled ? _pickFetchCount : null,
                     ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                SettingsGroup(
+                  title: 'History',
+                  children: [
+                    SettingsRow(
+                      icon: PhosphorIconsRegular.calendarBlank,
+                      label: 'Track from',
+                      supporting: _startDate == null
+                          ? 'Not set — recent mail only'
+                          : DateFormat('d MMM yyyy').format(_startDate!),
+                      accent: _startDate == null ? AppColors.warning : null,
+                      onTap: _pickTrackingStartDate,
+                    ),
+                    if (_startDate != null)
+                      SettingsRow(
+                        icon: _backfillDone
+                            ? PhosphorIconsRegular.checkCircle
+                            : PhosphorIconsRegular.clockCountdown,
+                        label: 'Catching up',
+                        supporting: _backfillDone
+                            ? 'Done — only new mail from now on'
+                            : 'Next check collects everything since this date',
+                      ),
                   ],
                 ),
                 const SizedBox(height: 22),

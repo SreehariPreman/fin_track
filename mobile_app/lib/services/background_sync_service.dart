@@ -87,11 +87,21 @@ Future<void> _syncAndNotify() async {
     return; // not set up yet
   }
 
+  // Until the one-off catch-up from the tracking start date has run,
+  // collect everything back to that date; the per-check limit exists to
+  // keep routine polls cheap and would silently truncate the history the
+  // user asked to start from.
+  final startDate = await syncPrefs.trackingStartDate();
+  final backfilled = await syncPrefs.initialBackfillDone();
+  final isBackfill = startDate != null && !backfilled;
+
   final fetched = await ImapService().fetchLastUpiTransactions(
     email: email,
     appPasscode: passcode,
-    maxCount: await syncPrefs.fetchCount(),
+    maxCount: isBackfill ? null : await syncPrefs.fetchCount(),
+    since: startDate,
   );
+  if (isBackfill) await syncPrefs.setInitialBackfillDone(true);
   if (fetched.isEmpty) return;
 
   final db = DatabaseService.instance;
