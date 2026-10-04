@@ -8,6 +8,7 @@ import '../services/bank_profiles.dart';
 import '../services/credentials_service.dart';
 import '../services/database_service.dart';
 import '../services/imap_service.dart';
+import '../services/sync_preferences.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_theme.dart';
@@ -42,6 +43,7 @@ class TransactionsScreen extends StatefulWidget {
 class _TransactionsScreenState extends State<TransactionsScreen> {
   final _credentialsService = CredentialsService();
   final _imapService = ImapService();
+  final _syncPrefs = SyncPreferences();
   final _db = DatabaseService.instance;
 
   List<UpiTransaction> _transactions = [];
@@ -130,10 +132,15 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
 
     try {
+      // Honour the same "Emails per check" setting the background sync
+      // uses. This was hardcoded to 10, so raising the setting silently
+      // did nothing here — and this is the path people reach for exactly
+      // when the background sync has missed something and they want it to
+      // look further back.
       final fetched = await _imapService.fetchLastUpiTransactions(
         email: email,
         appPasscode: passcode,
-        maxCount: 10,
+        maxCount: await _syncPrefs.fetchCount(),
       );
       await _db.insertNewTransactions(fetched);
       await _loadFromDb();
