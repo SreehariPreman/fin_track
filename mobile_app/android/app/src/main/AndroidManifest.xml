@@ -1,9 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Required to connect directly to imap.gmail.com to fetch mail -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!--
+      Backup is off deliberately. Android backs up app storage but never
+      Keystore material, so a restore returns the encrypted credentials
+      without the key that decrypts them — every secure-storage read then
+      fails, on a fresh-looking install the user can't fix by reinstalling
+      (the broken state is restored again each time). Transactions are
+      re-fetchable from Gmail, so there is nothing here worth that.
+    -->
     <application
         android:label="SpendTrack"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
