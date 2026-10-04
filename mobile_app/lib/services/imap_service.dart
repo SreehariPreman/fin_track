@@ -60,7 +60,13 @@ class ImapService {
       if (totalMessages == 0) return results;
 
       if (since != null) {
-        return _fetchSince(client, since, maxCount, onProgress);
+        // `await` is load-bearing. Returning the future bare lets control
+        // leave the try block immediately, which runs the finally — and
+        // the finally logs out and closes the socket. The fetch was then
+        // issued on a dead connection and simply never answered, so every
+        // date-filtered fetch failed on the response timeout exactly 30s
+        // later, looking for all the world like a slow mailbox.
+        return await _fetchSince(client, since, maxCount, onProgress);
       }
 
       onProgress?.call('Reading recent mail…');
@@ -87,10 +93,24 @@ class ImapService {
 
       return results;
     } finally {
+      // Always close the socket, even when the polite goodbye fails.
+      //
+      // logout() goes through the same command queue as everything else,
+      // so a client already wedged by a timeout can't complete it either
+      // — it just waits out another response timeout and leaves the
+      // connection open. Gmail caps simultaneous IMAP connections per
+      // account, so each leak makes the next fetch likelier to be
+      // throttled, which is how one slow fetch turns into a run of
+      // "sometimes it times out".
       try {
-        await client.logout();
+        await client.logout().timeout(const Duration(seconds: 5));
       } catch (_) {
-        // ignore logout failures
+        // ignore: the disconnect below is what actually matters
+      }
+      try {
+        await client.disconnect();
+      } catch (_) {
+        // nothing left to do; the socket is going away regardless
       }
     }
   }
@@ -186,14 +206,19 @@ class ImapService {
 
     final results = <UpiTransaction>[];
     final total = ids.length;
-    // Chunked so a wide date range doesn't become one enormous fetch.
-    const chunkSize = 30;
+    onProgress?.call('Found $total message${total == 1 ? '' : 's'}…');
+
+    // Chunked for progress granularity and to bound memory on a wide date
+    // range, not for speed — measured against a real mailbox, one fetch of
+    // 16 messages took 0.9s versus 1.6s in chunks of five, since each
+    // chunk is another round trip. Twenty keeps a typical catch-up to a
+    // single request while still breaking a few-hundred-message backfill
+    // into visible steps.
+    const chunkSize = 20;
+    var read = 0;
     for (var i = ids.length; i > 0; i -= chunkSize) {
       final chunk = ids.sublist((i - chunkSize).clamp(0, ids.length), i);
       if (chunk.isEmpty) continue;
-      onProgress?.call(
-        'Reading ${(total - i + chunk.length).clamp(0, total)} of $total…',
-      );
       final sequence = MessageSequence.fromIds(chunk);
       final fetched = await client.fetchMessages(
         sequence,
@@ -204,6 +229,10 @@ class ImapService {
         final transaction = _toTransaction(msg);
         if (transaction != null) results.add(transaction);
       }
+      // Reported after the work, not before it, so the number reflects
+      // what has actually been downloaded.
+      read += chunk.length;
+      onProgress?.call('Read $read of $total…');
     }
     return results;
   }
