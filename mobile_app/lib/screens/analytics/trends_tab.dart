@@ -1,14 +1,21 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/analytics_filter.dart';
 import '../../models/analytics_models.dart';
 import '../../services/analytics_service.dart';
+import 'package:flutter/services.dart';
+
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
+import '../../theme/app_theme.dart';
+import '../../utils/money.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/charts.dart';
+import '../../widgets/stat_tile.dart';
 import '../../widgets/coming_soon.dart';
+import '../../widgets/skeleton.dart';
 
 enum _Granularity { daily, weekly, monthly }
 
@@ -95,12 +102,12 @@ class _TrendsTabState extends State<TrendsTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const AnalyticsSkeleton();
     if (_hasError) {
-      return const ComingSoon(icon: Icons.error_outline, message: 'Could not load analytics.');
+      return const ComingSoon(icon: PhosphorIconsRegular.warningCircle, message: 'Could not load analytics.');
     }
     if (_daily.isEmpty) {
-      return const ComingSoon(icon: Icons.show_chart, message: 'No transactions in this period.');
+      return const ComingSoon(icon: PhosphorIconsRegular.chartLineUp, message: 'No transactions in this period.');
     }
 
     final total = _daily.fold<double>(0, (sum, d) => sum + d.total);
@@ -113,7 +120,8 @@ class _TrendsTabState extends State<TrendsTab> {
       color: AppColors.primary,
       onRefresh: _load,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        padding: const EdgeInsets.fromLTRB(
+            AppTheme.gutter, 4, AppTheme.gutter, AppTheme.sectionGap),
         children: [
           Row(
             children: [
@@ -124,39 +132,46 @@ class _TrendsTabState extends State<TrendsTab> {
                     label: Text(_label(g)),
                     selected: _granularity == g,
                     showCheckmark: false,
-                    onSelected: (_) => setState(() => _granularity = g),
+                    labelStyle: AppTextStyles.bodySecondary.copyWith(
+                      color: _granularity == g ? Colors.white : AppColors.textSecondary,
+                      fontWeight: _granularity == g ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                    onSelected: (_) {
+                      HapticFeedback.selectionClick();
+                      setState(() => _granularity = g);
+                    },
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppTheme.gap),
           AppCard(
-            child: SizedBox(height: 200, child: _TrendLineChart(series: bucketed, granularity: _granularity)),
+            padding: const EdgeInsets.fromLTRB(10, 20, 20, 10),
+            // The shared chart, rather than a second private copy — its
+            // label spacing is derived from the series length, which is
+            // what stopped the date labels overlapping and running off
+            // the right edge here.
+            child: SizedBox(height: 200, child: SpendLineChart(series: bucketed)),
           ),
-          const SizedBox(height: 16),
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Highest Spending Day', style: AppTextStyles.bodySecondary),
-                const SizedBox(height: 4),
-                Text(
-                  '${DateFormat('dd MMM').format(highest.date)} · ₹${highest.total.toStringAsFixed(0)}',
-                  style: AppTextStyles.sectionTitle.copyWith(fontSize: 18),
+          const SizedBox(height: AppTheme.gap),
+          Row(
+            children: [
+              Expanded(
+                child: StatTile(
+                  icon: PhosphorIconsRegular.trendUp,
+                  value: Money.whole(highest.total),
+                  label: 'Highest · ${DateFormat('d MMM').format(highest.date)}',
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          AppCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Average Daily Spending', style: AppTextStyles.bodySecondary),
-                const SizedBox(height: 4),
-                Text('₹${avgDaily.toStringAsFixed(0)}', style: AppTextStyles.sectionTitle.copyWith(fontSize: 18)),
-              ],
-            ),
+              ),
+              const SizedBox(width: AppTheme.gap),
+              Expanded(
+                child: StatTile(
+                  icon: PhosphorIconsRegular.chartBar,
+                  value: Money.whole(avgDaily),
+                  label: 'Avg. per day',
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -170,58 +185,3 @@ class _TrendsTabState extends State<TrendsTab> {
       };
 }
 
-class _TrendLineChart extends StatelessWidget {
-  final List<DailySpend> series;
-  final _Granularity granularity;
-
-  const _TrendLineChart({required this.series, required this.granularity});
-
-  @override
-  Widget build(BuildContext context) {
-    if (series.length < 2) {
-      return Center(child: Text('Not enough data yet', style: AppTextStyles.supporting));
-    }
-    final spots = [for (var i = 0; i < series.length; i++) FlSpot(i.toDouble(), series[i].total)];
-    final maxY = series.map((s) => s.total).reduce((a, b) => a > b ? a : b);
-    final dateFormat = granularity == _Granularity.monthly ? DateFormat('MMM') : DateFormat('dd MMM');
-
-    return LineChart(
-      LineChartData(
-        minY: 0,
-        maxY: maxY <= 0 ? 1 : maxY * 1.2,
-        gridData: const FlGridData(show: false),
-        borderData: FlBorderData(show: false),
-        lineTouchData: const LineTouchData(enabled: false),
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: (series.length / 4).clamp(1, series.length).toDouble(),
-              getTitlesWidget: (value, meta) {
-                final i = value.toInt();
-                if (i < 0 || i >= series.length) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(dateFormat.format(series[i].date), style: AppTextStyles.supporting),
-                );
-              },
-            ),
-          ),
-        ),
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            color: AppColors.primary,
-            barWidth: 2.5,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(show: true, color: AppColors.primary.withValues(alpha: 0.08)),
-          ),
-        ],
-      ),
-    );
-  }
-}

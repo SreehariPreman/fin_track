@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tells R8's resource shrinker these drawables are in use even though
+  nothing in compiled Android code references them.
+
+  ic_stat_spendtrack is only ever named from Dart, as a string handed to
+  flutter_local_notifications across the platform channel
+  ('@drawable/ic_stat_spendtrack' in NotificationService). The shrinker
+  can't see across that boundary, so in a release build it judged the
+  drawable unreachable and deleted it outright — not merely from the
+  compiled resource table, but from the APK. The first call to
+  NotificationService.init() in main() then threw
+  PlatformException(invalid_icon, ...) before runApp() ever ran, which is
+  why the app showed nothing but a black screen: no Flutter frame had been
+  produced yet for that exception to land in.
+
+  See https://developer.android.com/studio/build/shrink-code#keep-resources
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_spendtrack" />

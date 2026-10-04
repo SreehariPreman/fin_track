@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile_app/services/bank_profiles.dart';
 import 'package:mobile_app/services/imap_service.dart';
 
 void main() {
@@ -41,6 +42,29 @@ void main() {
       const html = 'Line one<br clear="all">Line two';
       final text = ImapService.stripHtmlForTesting(html);
       expect(text, contains('Line one\nLine two'));
+    });
+  });
+
+  group('ImapService — SINCE search criteria', () {
+    test('formats the date the way IMAP requires, zero-padded', () {
+      final criteria = ImapService.searchCriteriaForTesting(DateTime(2026, 10, 1));
+      expect(criteria, startsWith('SINCE 01-Oct-2026 '));
+    });
+
+    test('restricts the search to the known bank senders', () {
+      final criteria = ImapService.searchCriteriaForTesting(DateTime(2026, 10, 1));
+      for (final bank in bankProfiles) {
+        expect(criteria, contains('FROM "${bank.senderEmail}"'));
+      }
+    });
+
+    test('folds senders into binary ORs and parenthesises the clause', () {
+      final criteria = ImapService.searchCriteriaForTesting(DateTime(2026, 1, 5));
+      expect('OR '.allMatches(criteria).length, bankProfiles.length - 1);
+      // Without the parentheses SINCE would bind to only the first branch
+      // of the OR, quietly returning unfiltered mail for every other bank.
+      expect(criteria, contains('(OR '));
+      expect(criteria, endsWith(')'));
     });
   });
 }

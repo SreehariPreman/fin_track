@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/category.dart';
+import '../models/sheet_sync_entry.dart';
 import '../models/transaction.dart';
 
 const _kTxnColumns = '''
@@ -9,6 +12,20 @@ const _kTxnColumns = '''
   t.category_id, t.synced_to_sheet, c.name AS category_name,
   t.bank_code, t.bank_name, t.merchant_name, t.upi_id, t.reference_no,
   t.transaction_type, t.status, t.notes
+''';
+
+const _kCreateSheetSyncLog = '''
+  CREATE TABLE sheet_sync_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    synced_at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    row_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    spreadsheet_id TEXT,
+    spreadsheet_name TEXT,
+    message TEXT
+  )
 ''';
 
 /// Local on-device database — the single source of truth for transactions
@@ -41,7 +58,7 @@ class DatabaseService {
     final path = join(dbPath, 'fin_track.db');
     return openDatabase(
       path,
-      version: 2,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE category (
@@ -70,6 +87,7 @@ class DatabaseService {
             notes TEXT
           )
         ''');
+        await db.execute(_kCreateSheetSyncLog);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -85,6 +103,23 @@ class DatabaseService {
           ]) {
             await db.execute('ALTER TABLE transactions ADD COLUMN $column');
           }
+        }
+        if (oldVersion < 3) {
+          await db.execute(_kCreateSheetSyncLog);
+        }
+        if (oldVersion < 4) {
+          // Credits used to be ingested and counted as spending (one regex
+          // matched "is debited" and "has been credited" alike). New mail
+          // is rejected at ingest now, but rows already stored would keep
+          // inflating every total, so they're removed once here.
+          //
+          // Direction was never stored, so it's re-derived from the email
+          // body we kept: credited-and-not-debited. Deliberately narrow —
+          // a row that mentions neither is left alone.
+          await db.delete(
+            'transactions',
+            where: "body LIKE '%credited%' AND body NOT LIKE '%is debited%'",
+          );
         }
       },
     );
@@ -252,6 +287,108 @@ class DatabaseService {
     return rows.map((r) => r['bank_code'] as String).toList();
   }
 
+  /// Every transaction, oldest first — what "export everything to a new
+  /// sheet" writes, regardless of each row's sync state.
+  Future<List<UpiTransaction>> getAllTransactionsForExport() async {
+    final db = await _database;
+    final rows = await db.rawQuery('''
+      SELECT $_kTxnColumns
+      FROM transactions t
+      LEFT JOIN category c ON c.id = t.category_id
+      ORDER BY t.date ASC, t.id ASC
+    ''');
+    return rows.map(_transactionFromRow).toList();
+  }
+
+  /// Records one sync/export attempt for the history list on the Google
+  /// Sheet screen.
+  Future<void> logSheetSync({
+    required String kind,
+    required String status,
+    required int rowCount,
+    int skippedCount = 0,
+    String? spreadsheetId,
+    String? spreadsheetName,
+    String? message,
+  }) async {
+    final db = await _database;
+    await db.insert('sheet_sync_log', {
+      'synced_at': DateTime.now().toIso8601String(),
+      'kind': kind,
+      'status': status,
+      'row_count': rowCount,
+      'skipped_count': skippedCount,
+      'spreadsheet_id': spreadsheetId,
+      'spreadsheet_name': spreadsheetName,
+      'message': message,
+    });
+  }
+
+  /// A page of sync history, newest first.
+  Future<List<SheetSyncEntry>> getSheetSyncHistory({
+    int limit = 10,
+    int offset = 0,
+  }) async {
+    final db = await _database;
+    final rows = await db.query(
+      'sheet_sync_log',
+      orderBy: 'synced_at DESC, id DESC',
+      limit: limit,
+      offset: offset,
+    );
+    return rows.map(_syncEntryFromRow).toList();
+  }
+
+  Future<int> getSheetSyncCount() async {
+    final db = await _database;
+    final result = await db.rawQuery('SELECT COUNT(*) AS c FROM sheet_sync_log');
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  /// The most recent *successful* sync/export, or null if there hasn't
+  /// been one — drives the "Last synced ..." line.
+  Future<SheetSyncEntry?> getLastSuccessfulSheetSync() async {
+    final db = await _database;
+    final rows = await db.query(
+      'sheet_sync_log',
+      where: "status = 'success'",
+      orderBy: 'synced_at DESC, id DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _syncEntryFromRow(rows.first);
+  }
+
+  /// Flags every transaction as synced — used after exporting the full
+  /// history into a new sheet that then becomes the connected one, so the
+  /// next incremental sync doesn't re-send rows that sheet already holds.
+  Future<void> markAllSynced() async {
+    final db = await _database;
+    await db.rawUpdate('UPDATE transactions SET synced_to_sheet = 1');
+  }
+
+  /// Clears every transaction's synced flag — used when switching to a
+  /// different (empty, or externally-managed) sheet that should receive
+  /// the full history on the next sync.
+  Future<void> markAllUnsynced() async {
+    final db = await _database;
+    await db.rawUpdate('UPDATE transactions SET synced_to_sheet = 0');
+  }
+
+  SheetSyncEntry _syncEntryFromRow(Map<String, Object?> r) {
+    return SheetSyncEntry(
+      id: r['id'] as int,
+      syncedAt: DateTime.tryParse(r['synced_at'] as String? ?? '') ?? DateTime.now(),
+      kind: (r['kind'] as String?) ?? 'sync',
+      status: (r['status'] as String?) ?? 'success',
+      rowCount: (r['row_count'] as int?) ?? 0,
+      skippedCount: (r['skipped_count'] as int?) ?? 0,
+      spreadsheetId: r['spreadsheet_id'] as String?,
+      spreadsheetName: r['spreadsheet_name'] as String?,
+      message: r['message'] as String?,
+    );
+  }
+
   Future<void> markSynced(List<int> transactionIds) async {
     if (transactionIds.isEmpty) return;
     final db = await _database;
@@ -260,6 +397,51 @@ class DatabaseService {
       'UPDATE transactions SET synced_to_sheet = 1 WHERE id IN ($placeholders)',
       transactionIds,
     );
+  }
+
+  /// Everything the Local Storage screen reports: how much the database
+  /// occupies on disk and what's in it.
+  Future<LocalStorageStats> getLocalStorageStats() async {
+    final db = await _database;
+
+    Future<int> count(String sql) async =>
+        Sqflite.firstIntValue(await db.rawQuery(sql)) ?? 0;
+
+    final transactions = await count('SELECT COUNT(*) FROM transactions');
+    final categories = await count('SELECT COUNT(*) FROM category');
+    final unlabelled = await count('SELECT COUNT(*) FROM transactions WHERE category_id IS NULL');
+    final synced = await count('SELECT COUNT(*) FROM transactions WHERE synced_to_sheet = 1');
+    final syncRuns = await count('SELECT COUNT(*) FROM sheet_sync_log');
+
+    final range = await db.rawQuery(
+      'SELECT MIN(date) AS oldest, MAX(date) AS newest FROM transactions WHERE date IS NOT NULL',
+    );
+    final oldest = range.isEmpty ? null : range.first['oldest'] as String?;
+    final newest = range.isEmpty ? null : range.first['newest'] as String?;
+
+    return LocalStorageStats(
+      bytes: await _databaseBytes(),
+      transactions: transactions,
+      categories: categories,
+      unlabelled: unlabelled,
+      synced: synced,
+      syncRuns: syncRuns,
+      oldest: oldest == null ? null : DateTime.tryParse(oldest),
+      newest: newest == null ? null : DateTime.tryParse(newest),
+    );
+  }
+
+  /// Size of the database on disk. SQLite in WAL mode keeps recent writes
+  /// in a sidecar `-wal` file, so summing the set is the only figure that
+  /// matches what the OS reports for the app's data.
+  Future<int> _databaseBytes() async {
+    final path = join(await getDatabasesPath(), 'fin_track.db');
+    var total = 0;
+    for (final suffix in ['', '-wal', '-shm']) {
+      final file = File('$path$suffix');
+      if (await file.exists()) total += await file.length();
+    }
+    return total;
   }
 
   Future<void> assignCategory(int transactionId, int? categoryId) async {
@@ -337,5 +519,35 @@ class DatabaseService {
       status: r['status'] as String?,
       notes: r['notes'] as String?,
     );
+  }
+}
+
+/// Snapshot of what the app is storing on this device.
+class LocalStorageStats {
+  final int bytes;
+  final int transactions;
+  final int categories;
+  final int unlabelled;
+  final int synced;
+  final int syncRuns;
+  final DateTime? oldest;
+  final DateTime? newest;
+
+  LocalStorageStats({
+    required this.bytes,
+    required this.transactions,
+    required this.categories,
+    required this.unlabelled,
+    required this.synced,
+    required this.syncRuns,
+    this.oldest,
+    this.newest,
+  });
+
+  /// e.g. "148 KB", "1.2 MB".
+  String get formattedSize {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).round()} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }

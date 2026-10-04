@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
-import '../models/category.dart';
-import '../services/database_service.dart';
-import '../theme/app_colors.dart';
-import '../theme/app_text_styles.dart';
-import '../widgets/app_card.dart';
-import '../widgets/category_avatar.dart';
+import '../../models/category.dart';
+import '../../services/database_service.dart';
+import '../../theme/app_colors.dart';
+import '../../theme/app_text_styles.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/category_avatar.dart';
 
 /// Manage categories: view, add, delete. Deleting a category un-labels
 /// (doesn't delete) any transactions that had it.
@@ -136,7 +137,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                   child: Text(_categories[i].name, style: AppTextStyles.body),
                                 ),
                                 IconButton(
-                                  icon: Icon(Icons.delete_outline, color: AppColors.textMuted),
+                                  icon: Icon(PhosphorIconsRegular.trashSimple, color: AppColors.textMuted),
                                   onPressed: () => _deleteCategory(_categories[i]),
                                 ),
                               ],
@@ -149,7 +150,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: _addCategory,
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(PhosphorIconsBold.plus),
                   label: const Text('New category'),
                 ),
               ],

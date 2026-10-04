@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 import '../../models/analytics_filter.dart';
 import '../../models/transaction.dart';
@@ -7,6 +8,7 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import '../../utils/transaction_grouping.dart';
 import '../../widgets/coming_soon.dart';
+import '../../widgets/skeleton.dart';
 import '../../widgets/transaction_card.dart';
 import '../transaction_detail_screen.dart';
 
@@ -84,12 +86,12 @@ class _CategoryTransactionsScreenState extends State<CategoryTransactionsScreen>
     return Scaffold(
       appBar: AppBar(title: Text(widget.categoryName)),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const ListSkeleton()
           : _hasError
-              ? const ComingSoon(icon: Icons.error_outline, message: 'Could not load transactions.')
+              ? const ComingSoon(icon: PhosphorIconsRegular.warningCircle, message: 'Could not load transactions.')
               : _transactions.isEmpty
                   ? const ComingSoon(
-                      icon: Icons.inbox_outlined,
+                      icon: PhosphorIconsRegular.trayArrowDown,
                       message: 'No transactions for this category in this period.',
                     )
                   : RefreshIndicator(
@@ -104,7 +106,7 @@ class _CategoryTransactionsScreenState extends State<CategoryTransactionsScreen>
                               child: Text(entry.key, style: AppTextStyles.sectionTitle.copyWith(fontSize: 14)),
                             ),
                             ...entry.value.map(
-                              (t) => TransactionCard(transaction: t, onTap: () => _openDetail(t)),
+                              (t) => TransactionRow(transaction: t, onTap: () => _openDetail(t)),
                             ),
                           ],
                         ],

@@ -1,27 +1,32 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'screens/splash_screen.dart';
-import 'services/background_sync_service.dart';
-import 'services/credentials_service.dart';
 import 'services/notification_service.dart';
+import 'theme/app_colors.dart';
+import 'theme/app_text_styles.dart';
 import 'theme/app_theme.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Order matters: notification channel + cold-start tap detection before
-  // the UI builds, so a tap that launched the app is ready to route as
-  // soon as RootScreen mounts.
-  await NotificationService.instance.init();
+  // Show something readable instead of a bare grey rectangle if a widget
+  // fails to build in a release build. A blank screen tells you nothing
+  // from a phone you can't attach a debugger to.
+  ErrorWidget.builder = (details) => _StartupFailure(
+        title: 'Something went wrong drawing this screen',
+        detail: details.exceptionAsString(),
+      );
 
-  await BackgroundSyncService.initialize();
-  if (await CredentialsService().hasCredentials()) {
-    // Re-assert scheduling on every app start (e.g. after a reinstall) —
-    // registerPeriodicTask + ExistingWorkPolicy.keep is a no-op if it's
-    // already scheduled.
-    await BackgroundSyncService.register();
-  }
-
+  // Render first, initialise second.
+  //
+  // Notification setup, WorkManager registration and the Keystore-backed
+  // credential check all used to be awaited *here*, before runApp(). Any
+  // one of them throwing — or simply never completing — meant runApp()
+  // was never reached and the app showed nothing but a black window, with
+  // no way to tell from the device which step had died. Those now run
+  // behind the splash, individually guarded, so a failure is reported
+  // rather than fatal. See SplashScreen.
   runApp(const FinTrackApp());
 }
 
@@ -35,7 +40,45 @@ class FinTrackApp extends StatelessWidget {
       navigatorKey: NotificationService.instance.navigatorKey,
       theme: AppTheme.light,
       themeMode: ThemeMode.light,
+      debugShowCheckedModeBanner: false,
       home: const SplashScreen(),
+    );
+  }
+}
+
+/// Full-screen, self-contained error report.
+///
+/// Deliberately depends on nothing but Flutter itself — it has to be able
+/// to render when the rest of the app is in a bad state.
+class _StartupFailure extends StatelessWidget {
+  final String title;
+  final String detail;
+
+  const _StartupFailure({required this.title, required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Container(
+        color: AppColors.background,
+        padding: const EdgeInsets.fromLTRB(24, 80, 24, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: AppTextStyles.sectionTitle),
+              const SizedBox(height: 12),
+              Text(
+                detail,
+                style: AppTextStyles.supporting.copyWith(
+                  fontFamily: kIsWeb ? null : 'monospace',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
