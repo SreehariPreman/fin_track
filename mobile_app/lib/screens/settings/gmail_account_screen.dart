@@ -60,29 +60,41 @@ class _GmailAccountScreenState extends State<GmailAccountScreen> {
       email: _emailController.text,
       appPasscode: _passcodeController.text,
     );
-    // Now that there's something worth syncing in the background, ask for
-    // notification permission and schedule the periodic sync. Best-effort
-    // — a failure here (e.g. WorkManager unavailable) shouldn't block
-    // saving your credentials.
-    try {
-      await NotificationService.instance.requestPermission();
-      await BackgroundSyncService.register();
-    } catch (_) {
-      // ignore
-    }
     if (!mounted) return;
     setState(() {
       _saving = false;
       _connected = true;
     });
 
-    // Ask where to start before anything is fetched. Without this the
-    // first check just grabs the most recent handful of mails, which for
-    // a mailbox with history in it is an arbitrary slice of the past
-    // rather than the starting point the user would have chosen.
-    if (await SyncPreferences().trackingStartDate() == null) {
+    // Settle the start date *before* scheduling anything.
+    //
+    // Registering the periodic sync kicks off its first run more or less
+    // immediately, and a run with no start date set falls back to "the
+    // most recent few" — so scheduling first meant the arbitrary slice of
+    // history this question exists to avoid had already been fetched by
+    // the time the picker was answered.
+    final prefs = SyncPreferences();
+    if (await prefs.trackingStartDate() == null) {
       if (!mounted) return;
-      await pickTrackingStartDate(context);
+      final picked = await pickTrackingStartDate(context);
+      if (picked == null) {
+        // Dismissed. Default to today rather than leaving no floor at
+        // all: "from now on" is the sane reading of connecting an
+        // account, and it avoids silently importing whatever happens to
+        // be at the top of the mailbox. Visible and changeable in Sync
+        // Settings.
+        await prefs.setTrackingStartDate(DateTime.now());
+      }
+    }
+
+    // Only now is it safe to let the sync run. Best-effort — a failure
+    // here (e.g. WorkManager unavailable) shouldn't block saving your
+    // credentials.
+    try {
+      await NotificationService.instance.requestPermission();
+      await BackgroundSyncService.register();
+    } catch (_) {
+      // ignore
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved.')));
