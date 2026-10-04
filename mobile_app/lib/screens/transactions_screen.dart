@@ -50,6 +50,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   List<String> _bankCodes = [];
   int _unlabelledCount = 0;
   bool _fetching = false;
+  /// What the in-flight fetch is currently doing. The catch-up from the
+  /// tracking start date can run for a while, and a spinner on its own
+  /// gives no way to tell "working" from "stuck".
+  String? _fetchStatus;
   bool _loadingList = true;
   String? _error;
 
@@ -118,6 +122,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     setState(() {
       _fetching = true;
       _error = null;
+      _fetchStatus = 'Starting…';
     });
 
     final email = await _credentialsService.readEmail();
@@ -126,6 +131,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (email == null || email.isEmpty || passcode == null || passcode.isEmpty) {
       setState(() {
         _fetching = false;
+        _fetchStatus = null;
         _error = 'Connect your Gmail account in Settings first.';
       });
       return;
@@ -150,16 +156,42 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         appPasscode: passcode,
         maxCount: isBackfill ? null : await _syncPrefs.fetchCount(),
         since: startDate,
+        onProgress: (message) {
+          if (mounted) setState(() => _fetchStatus = message);
+        },
       );
       if (isBackfill) await _syncPrefs.setInitialBackfillDone(true);
+
+      // Work out what was actually new before saving, so the result can
+      // say something concrete. "Nothing new" and "nothing happened" look
+      // identical otherwise, which is the whole complaint.
+      final existing =
+          await _db.getExistingEmailIds(fetched.map((t) => t.emailId).toList());
+      final added = fetched.where((t) => !existing.contains(t.emailId)).length;
+
       await _db.insertNewTransactions(fetched);
       await _loadFromDb();
       if (!mounted) return;
-      setState(() => _fetching = false);
+      setState(() {
+        _fetching = false;
+        _fetchStatus = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            switch ((fetched.length, added)) {
+              (0, _) => 'No bank transactions found.',
+              (_, 0) => 'Already up to date.',
+              (_, final n) => 'Added $n transaction${n == 1 ? '' : 's'}.',
+            },
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _fetching = false;
+        _fetchStatus = null;
         _error = 'Could not fetch mail: $e';
       });
     }
@@ -212,6 +244,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                 padding: const EdgeInsets.fromLTRB(
                     AppTheme.gutter, 4, AppTheme.gutter, AppTheme.sectionGap),
                 children: [
+                  if (_fetchStatus != null) ...[
+                    _FetchStatusPanel(message: _fetchStatus!),
+                    const SizedBox(height: AppTheme.gap),
+                  ],
                   if (_error != null) ...[
                     _ErrorPanel(message: _error!),
                     const SizedBox(height: AppTheme.gap),
@@ -285,6 +321,42 @@ class _FetchButton extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2.2),
             )
           : const Icon(PhosphorIconsRegular.arrowsClockwise, size: 21),
+    );
+  }
+}
+
+/// What the in-flight fetch is doing, shown inline above the list.
+///
+/// The toolbar spinner alone can't distinguish a catch-up working through
+/// a few hundred mails from a connection that has silently stalled.
+class _FetchStatusPanel extends StatelessWidget {
+  final String message;
+
+  const _FetchStatusPanel({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return TintedPanel(
+      color: AppColors.primarySoft,
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.bodySecondary.copyWith(
+                color: AppColors.primaryDark,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

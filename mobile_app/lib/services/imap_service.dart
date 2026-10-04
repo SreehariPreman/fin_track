@@ -12,6 +12,15 @@ class ImapService {
   static const String host = 'imap.gmail.com';
   static const int port = 993;
 
+  /// Per-response ceiling. A single IMAP response has no business taking
+  /// this long, and without a bound a stalled connection leaves the UI
+  /// spinning forever with nothing to report — the fetch never fails, it
+  /// just never finishes. Deliberately per-operation rather than one
+  /// timeout around the whole fetch, so a large but healthy catch-up
+  /// isn't killed for being slow.
+  static const Duration _responseTimeout = Duration(seconds: 30);
+  static const Duration _writeTimeout = Duration(seconds: 20);
+
   /// Collects recognised bank-alert emails, newest first.
   ///
   /// [since] puts a hard floor on how far back to look. When it's set the
@@ -23,16 +32,26 @@ class ImapService {
   /// [maxCount] caps how many are returned; null means "everything in
   /// range", which is what the one-off catch-up from the tracking start
   /// date uses.
+  ///
+  /// [onProgress] reports what the fetch is currently doing. The catch-up
+  /// can legitimately run for a while, and a bare spinner gives no way to
+  /// tell a slow fetch from a stuck one.
   Future<List<UpiTransaction>> fetchLastUpiTransactions({
     required String email,
     required String appPasscode,
     int? maxCount = 10,
     DateTime? since,
+    void Function(String message)? onProgress,
   }) async {
-    final client = ImapClient(isLogEnabled: false);
+    final client = ImapClient(
+      isLogEnabled: false,
+      defaultResponseTimeout: _responseTimeout,
+      defaultWriteTimeout: _writeTimeout,
+    );
     final results = <UpiTransaction>[];
 
     try {
+      onProgress?.call('Connecting to Gmail…');
       await client.connectToServer(host, port, isSecure: true);
       await client.login(email, appPasscode);
       final mailbox = await client.selectInbox();
@@ -41,8 +60,10 @@ class ImapService {
       if (totalMessages == 0) return results;
 
       if (since != null) {
-        return _fetchSince(client, since, maxCount);
+        return _fetchSince(client, since, maxCount, onProgress);
       }
+
+      onProgress?.call('Reading recent mail…');
 
       const batchSize = 30;
       var end = totalMessages;
@@ -144,12 +165,18 @@ class ImapService {
     ImapClient client,
     DateTime since,
     int? maxCount,
+    void Function(String message)? onProgress,
   ) async {
+    onProgress?.call('Searching for bank mail…');
     final search = await client.searchMessages(
       searchCriteria: _sinceFromBanksCriteria(since),
+      responseTimeout: _responseTimeout,
     );
     var ids = search.matchingSequence?.toList() ?? const <int>[];
-    if (ids.isEmpty) return [];
+    if (ids.isEmpty) {
+      onProgress?.call('No bank mail found since that date');
+      return [];
+    }
 
     // SEARCH returns ascending sequence ids; newest are at the end.
     ids.sort();
@@ -158,13 +185,21 @@ class ImapService {
     }
 
     final results = <UpiTransaction>[];
+    final total = ids.length;
     // Chunked so a wide date range doesn't become one enormous fetch.
     const chunkSize = 30;
     for (var i = ids.length; i > 0; i -= chunkSize) {
       final chunk = ids.sublist((i - chunkSize).clamp(0, ids.length), i);
       if (chunk.isEmpty) continue;
+      onProgress?.call(
+        'Reading ${(total - i + chunk.length).clamp(0, total)} of $total…',
+      );
       final sequence = MessageSequence.fromIds(chunk);
-      final fetched = await client.fetchMessages(sequence, 'BODY.PEEK[]');
+      final fetched = await client.fetchMessages(
+        sequence,
+        'BODY.PEEK[]',
+        responseTimeout: _responseTimeout,
+      );
       for (final msg in fetched.messages.reversed) {
         final transaction = _toTransaction(msg);
         if (transaction != null) results.add(transaction);
