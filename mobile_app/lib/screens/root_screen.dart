@@ -79,7 +79,10 @@ class _RootScreenState extends State<RootScreen> {
         onCategoryTap: _viewCategoryInAnalytics,
         active: _index == 0,
       ),
-      TransactionsScreen(pendingFilter: _pendingTransactionsFilter),
+      TransactionsScreen(
+        pendingFilter: _pendingTransactionsFilter,
+        active: _index == 1,
+      ),
       AnalyticsTab(pendingCategoryRequest: _pendingAnalyticsCategory),
       const SettingsScreen(),
     ];
