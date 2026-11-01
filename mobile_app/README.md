@@ -1,4 +1,4 @@
-# SpendTrack — Mobile App
+# Ledger — Mobile App
 
 *Track. Understand. Take Control.*
 

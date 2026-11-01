@@ -13,7 +13,7 @@ void main() {
     await tester.pumpWidget(const FinTrackApp());
 
     // Brand first, while startup runs behind it.
-    expect(find.text('SpendTrack'), findsOneWidget);
+    expect(find.text('Ledger'), findsOneWidget);
     expect(find.text('Track. Understand. Take Control.'), findsOneWidget);
 
     // The platform channels never answer under the test binding, so each

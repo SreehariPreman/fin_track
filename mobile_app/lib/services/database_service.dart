@@ -485,6 +485,28 @@ class DatabaseService {
     return Category(id: id, name: name);
   }
 
+  /// Renames a category in place.
+  ///
+  /// Nothing else has to move: transactions store `category_id` and the
+  /// name is joined at read time, so every transaction, chart and filter
+  /// picks up the new name on the next read. The row keeps its id, which
+  /// also means it keeps its colour — that is derived from the id, not
+  /// the name.
+  ///
+  /// Throws if [newName] is already taken by another category, so the
+  /// caller can say so rather than silently merging two categories into
+  /// one.
+  Future<void> renameCategory(int categoryId, String newName) async {
+    final db = await _database;
+    await db.update(
+      'category',
+      {'name': newName},
+      where: 'id = ?',
+      whereArgs: [categoryId],
+      conflictAlgorithm: ConflictAlgorithm.fail,
+    );
+  }
+
   Future<void> deleteCategory(int categoryId) async {
     final db = await _database;
     await db.transaction((txn) async {

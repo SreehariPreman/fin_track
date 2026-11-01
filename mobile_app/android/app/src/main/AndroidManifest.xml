@@ -10,7 +10,7 @@
       re-fetchable from Gmail, so there is nothing here worth that.
     -->
     <application
-        android:label="SpendTrack"
+        android:label="Ledger"
         android:name="${applicationName}"
         android:allowBackup="false"
         android:fullBackupContent="false"

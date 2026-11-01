@@ -34,7 +34,18 @@ class TransactionsScreen extends StatefulWidget {
   /// applies it once, then clears it back to null.
   final ValueNotifier<String?>? pendingFilter;
 
-  const TransactionsScreen({super.key, this.pendingFilter});
+  /// Whether this tab is the selected one. RootScreen keeps every tab
+  /// alive in an IndexedStack, so without this the list keeps showing
+  /// whatever it read at startup — a category renamed in Settings, or a
+  /// transaction saved by the background sync, wouldn't appear until the
+  /// app was restarted. HomeTab already works this way.
+  final bool active;
+
+  const TransactionsScreen({
+    super.key,
+    this.pendingFilter,
+    this.active = true,
+  });
 
   @override
   State<TransactionsScreen> createState() => _TransactionsScreenState();
@@ -71,6 +82,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     widget.pendingFilter?.addListener(_onPendingFilter);
     _onPendingFilter();
     _loadFromDb();
+  }
+
+  @override
+  void didUpdateWidget(covariant TransactionsScreen old) {
+    super.didUpdateWidget(old);
+    if (widget.active && !old.active) _loadFromDb();
   }
 
   @override
