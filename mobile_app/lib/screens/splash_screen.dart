@@ -129,7 +129,7 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
         const SizedBox(height: 26),
         Text(
-          'SpendTrack',
+          'Ledger',
           style: AppTextStyles.screenTitle.copyWith(color: Colors.white),
         ).animate().fadeIn(delay: 140.ms, duration: 380.ms).slideY(
               begin: 0.3,

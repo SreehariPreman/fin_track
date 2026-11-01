@@ -36,7 +36,7 @@ class FinTrackApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SpendTrack',
+      title: 'Ledger',
       navigatorKey: NotificationService.instance.navigatorKey,
       theme: AppTheme.light,
       themeMode: ThemeMode.light,
